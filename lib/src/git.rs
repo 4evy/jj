@@ -91,6 +91,8 @@ pub const RESERVED_REMOTE_REF_NAMESPACE: &str = "refs/remotes/git/";
 const REMOTE_BOOKMARK_REF_NAMESPACE: &str = "refs/remotes/";
 /// Git ref prefix where remote tags will be temporarily fetched.
 const REMOTE_TAG_REF_NAMESPACE: &str = "refs/jj/remote-tags/";
+/// Git ref prefix for one-off raw ref fetches.
+const TEMPORARY_FETCH_REF_NAMESPACE: &str = "refs/jj/fetch/";
 /// Ref name used as a placeholder to unset HEAD without a commit.
 const UNBORN_ROOT_REF_NAME: &str = "refs/jj/root";
 /// Dummy file to be added to the index to indicate that the user is editing a
@@ -770,6 +772,22 @@ async fn import_refs_inner(
         failed_ref_names,
     };
     Ok(stats)
+}
+
+/// Imports a single commit from the underlying Git repo into the Jujutsu repo.
+pub async fn import_commit(
+    mut_repo: &mut MutableRepo,
+    commit_id: CommitId,
+) -> Result<Commit, GitImportError> {
+    let store = mut_repo.store();
+    let git_backend = get_git_backend(store)?;
+    let index = mut_repo.index();
+    if !index.has_id(&commit_id).await? {
+        git_backend.import_head_commits([&commit_id])?;
+    }
+    let commit = store.get_commit_async(&commit_id).await?;
+    mut_repo.add_head(&commit).await?;
+    Ok(commit)
 }
 
 /// Finds commits that used to be reachable in git that no longer are reachable.
@@ -2699,6 +2717,24 @@ const INVALID_REFSPEC_CHARS: [char; 5] = [':', '^', '?', '[', ']'];
 pub enum GitFetchError {
     #[error("No git remote named '{}'", .0.as_symbol())]
     NoSuchRemote(RemoteNameBuf),
+    #[error("Invalid Git ref or commit ID: {fetch_source}")]
+    InvalidSource { fetch_source: String },
+    #[error("Git remote '{}' has no ref or commit ID matching '{fetch_source}'", remote.as_symbol())]
+    NoSuchSource {
+        remote: RemoteNameBuf,
+        fetch_source: String,
+    },
+    #[error("Ref or object ID '{fetch_source}' on Git remote '{}' does not resolve to a commit", remote.as_symbol())]
+    NotACommit {
+        remote: RemoteNameBuf,
+        fetch_source: String,
+    },
+    #[error("Failed to clean up temporary Git ref '{}'", ref_name.as_str())]
+    TemporaryRefCleanup {
+        ref_name: GitRefNameBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     #[error(transparent)]
     RemoteName(#[from] GitRemoteNameError),
     #[error("Failed to update refs: {}", .0.iter().map(|n| n.as_symbol()).join(", "))]
@@ -3146,6 +3182,99 @@ impl<'a> GitFetch<'a> {
             bookmark_matcher: expr.bookmark.to_matcher(),
             tag_matcher: expr.tag.to_matcher(),
         });
+        Ok(())
+    }
+
+    /// Fetches the commit identified by a raw ref or full commit ID.
+    #[tracing::instrument(skip(self, callback))]
+    pub fn fetch_commit(
+        &mut self,
+        remote_name: &RemoteName,
+        source: &str,
+        callback: &mut dyn GitSubprocessCallback,
+        depth: Option<NonZeroU32>,
+    ) -> Result<CommitId, GitFetchError> {
+        validate_remote_name(remote_name)?;
+        if <&gix::refs::PartialNameRef>::try_from(source).is_err() {
+            return Err(GitFetchError::InvalidSource {
+                fetch_source: source.to_owned(),
+            });
+        }
+        if try_find_active_remote_inner(&self.git_repo, remote_name).is_none() {
+            return Err(GitFetchError::NoSuchRemote(remote_name.to_owned()));
+        }
+
+        // Use a unique destination so concurrent fetches can't share or delete
+        // the same temporary ref. This also avoids overwriting a pre-existing
+        // internal ref.
+        let random_bytes = rand::random::<[u8; 16]>();
+        let temporary_ref_name: GitRefNameBuf = format!(
+            "{TEMPORARY_FETCH_REF_NAMESPACE}{}",
+            crate::hex_util::encode_hex(&random_bytes)
+        )
+        .into();
+        let refspec = RefSpec::forced(source, temporary_ref_name.as_str());
+        let no_negative_refspecs = [];
+        let fetch_result = (|| {
+            let updates = match self.git_ctx.spawn_fetch(
+                remote_name,
+                std::slice::from_ref(&refspec),
+                &no_negative_refspecs,
+                callback,
+                depth,
+            )? {
+                GitFetchStatus::Updates(updates) => updates,
+                GitFetchStatus::NoRemoteRef(_) => {
+                    return Err(GitFetchError::NoSuchSource {
+                        remote: remote_name.to_owned(),
+                        fetch_source: source.to_owned(),
+                    });
+                }
+            };
+            if !updates.rejected.is_empty() {
+                let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
+                return Err(GitFetchError::RejectedUpdates(names));
+            }
+
+            let reference = self
+                .git_repo
+                .find_reference(temporary_ref_name.as_str())
+                .map_err(|_| GitFetchError::NoSuchSource {
+                    remote: remote_name.to_owned(),
+                    fetch_source: source.to_owned(),
+                })?;
+            let commit_id = resolve_git_ref_to_commit_id(&reference, None).ok_or_else(|| {
+                GitFetchError::NotACommit {
+                    remote: remote_name.to_owned(),
+                    fetch_source: source.to_owned(),
+                }
+            })?;
+            Ok(CommitId::from_bytes(commit_id.as_bytes()))
+        })();
+        let cleanup_result = self.delete_temporary_fetch_ref(&temporary_ref_name);
+        match (fetch_result, cleanup_result) {
+            (Ok(commit_id), Ok(())) => Ok(commit_id),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(err),
+        }
+    }
+
+    fn delete_temporary_fetch_ref(&self, ref_name: &GitRefName) -> Result<(), GitFetchError> {
+        let reference = self
+            .git_repo
+            .try_find_reference(ref_name.as_str())
+            .map_err(|source| GitFetchError::TemporaryRefCleanup {
+                ref_name: ref_name.to_owned(),
+                source: Box::new(source),
+            })?;
+        if let Some(reference) = reference {
+            reference
+                .delete()
+                .map_err(|source| GitFetchError::TemporaryRefCleanup {
+                    ref_name: ref_name.to_owned(),
+                    source: Box::new(source),
+                })?;
+        }
         Ok(())
     }
 
