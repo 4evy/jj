@@ -959,7 +959,7 @@ async fn print_commits_ready_to_push(
     Ok(())
 }
 
-fn get_default_push_remote(
+pub(super) fn get_default_push_remote(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
 ) -> Result<RemoteNameBuf, CommandError> {

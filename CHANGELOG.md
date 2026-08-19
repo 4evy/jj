@@ -34,6 +34,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   configured remote. The fetched commit becomes visible without creating a
   bookmark or remote-tracking ref.
 
+* `jj git ref push` can push one revision to a fully qualified Git ref. Each
+  push must be unconditional, require the ref to be absent, or require it to
+  point to an expected object ID.
+
 ### Fixed bugs
 
 * The default pager flags now include `-K` (`--quit-on-intr`), so pressing

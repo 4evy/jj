@@ -67,6 +67,7 @@ This document contains the help content for the `jj` command-line program.
 * [`jj git push`↴](#jj-git-push)
 * [`jj git ref`↴](#jj-git-ref)
 * [`jj git ref fetch`↴](#jj-git-ref-fetch)
+* [`jj git ref push`↴](#jj-git-ref-push)
 * [`jj git remote`↴](#jj-git-remote)
 * [`jj git remote add`↴](#jj-git-remote-add)
 * [`jj git remote list`↴](#jj-git-remote-list)
@@ -1902,6 +1903,7 @@ Manage raw Git refs
 ###### **Subcommands:**
 
 * `fetch` — Fetch one raw ref or full commit ID from a Git remote
+* `push` — Push one revision to a raw Git ref on a remote
 
 
 
@@ -1909,7 +1911,7 @@ Manage raw Git refs
 
 Fetch one raw ref or full commit ID from a Git remote
 
-The source can be a fully qualified remote ref such as GitHub's `refs/pull/123/head`, or a full Git commit ID (40 hexadecimal characters for SHA-1 repositories or 64 for SHA-256 repositories).
+The source can be a fully qualified remote ref such as GitHub's `refs/pull/123/head`, or a full Git commit ID
 
 **Usage:** `jj git ref fetch [OPTIONS] <REF>`
 
@@ -1922,6 +1924,35 @@ The source can be a fully qualified remote ref such as GitHub's `refs/pull/123/h
 * `--remote <REMOTE>` — The remote to fetch from (only named remotes are supported)
 
    By default, this uses the `git.fetch` setting when it matches exactly one remote. If that is not configured, the only remote or the remote named "origin" is used.
+
+
+
+## `jj git ref push`
+
+Push one revision to a raw Git ref on a remote
+
+This low-level command is intended for application-specific refs such as Gerrit's `refs/for/main`. It does not create or track a bookmark.
+
+Each invocation must choose whether to push unconditionally, require the ref to be absent, or require it to point to an expected object ID.
+
+Unlike `jj git push`, this command does not check for private commits, missing descriptions or identities, or conflicts. It also does not use `git.sign-on-push`; it pushes the selected Git commit as stored.
+
+**Usage:** `jj git ref push [OPTIONS] <--force|--expected-at <OBJECT_ID>|--expected-absent> <REVISION> <REF>`
+
+###### **Arguments:**
+
+* `<REVISION>` — The revision to push
+* `<REF>` — The fully qualified destination ref, such as `refs/for/main`
+
+###### **Options:**
+
+* `--remote <REMOTE>` — The remote to push to (only named remotes are supported)
+
+   This defaults to the `git.push` setting. If that is not configured, the only remote or the remote named "origin" is used.
+* `--force` — Push without checking the current position of the remote ref
+* `--expected-at <OBJECT_ID>` — Push only if the remote ref is currently at this full Git object ID
+* `--expected-absent` — Push only if the remote ref does not exist
+* `-o`, `--option <OPTION>` — Git push options (can be repeated)
 
 
 
