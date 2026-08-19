@@ -23,7 +23,7 @@ fn test_undo_root_operation() {
     let output = work_dir.run_jj(["undo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Undid operation: f63ee16f9553 (2001-02-03 08:05:07) add workspace 'default'
+    Undid operation: 3366dbbb81ac (2001-02-03 08:05:07) add workspace 'default'
     Restored to operation: 000000000000 root()
     Warning: The current workspace 'default' no longer exists after this operation. The working copy was left untouched.
     Hint: Restore to an operation that contains the workspace (e.g. `jj undo` or `jj redo`).
@@ -78,8 +78,8 @@ fn test_undo_push_operation() {
     ------- stderr -------
     Warning: Undoing a push operation often leads to conflicted bookmarks.
     Hint: To avoid this, run `jj redo` now.
-    Undid operation: 841f09db81a1 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
-    Restored to operation: 27cf57bcf92a (2001-02-03 08:05:09) commit 3850397cf31988d0657948307ad5bbe873d76a38
+    Undid operation: 4cc1054520a8 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
+    Restored to operation: 1a48815dddd3 (2001-02-03 08:05:09) commit 3850397cf31988d0657948307ad5bbe873d76a38
     [EOF]
     ");
 }

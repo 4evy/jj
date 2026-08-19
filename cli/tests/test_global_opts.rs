@@ -251,8 +251,8 @@ fn test_no_integrate_operation() {
     let output = test_env.run_jj_in(&repo_path, &["squash", "--no-integrate-operation"]);
     insta::assert_snapshot!(output.stdout, @"");
     insta::assert_snapshot!(output.stderr, @"
-    Snapshot operation left uncommitted because --no-integrate-operation was requested: 1b6e5938fe7e
-    Operation left uncommitted because --no-integrate-operation was requested: 0e885c491646
+    Snapshot operation left uncommitted because --no-integrate-operation was requested: 206d84551793
+    Operation left uncommitted because --no-integrate-operation was requested: 50c502fd616b
     [EOF]
     ");
     let stderr = output.stderr.into_raw();
@@ -320,8 +320,8 @@ fn test_no_integrate_operation_colocated() {
     let output = test_env.run_jj_in(&repo_path, &["squash", "--no-integrate-operation"]);
     insta::assert_snapshot!(output.stdout, @"");
     insta::assert_snapshot!(output.stderr, @"
-    Snapshot operation left uncommitted because --no-integrate-operation was requested: 62fa29d079c6
-    Operation left uncommitted because --no-integrate-operation was requested: ba14e2cc9e65
+    Snapshot operation left uncommitted because --no-integrate-operation was requested: cf11c2d7c6f5
+    Operation left uncommitted because --no-integrate-operation was requested: d80931711747
     [EOF]
     ");
     let stderr = output.stderr.into_raw();

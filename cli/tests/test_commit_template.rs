@@ -607,13 +607,13 @@ fn test_log_evolog_divergence() {
     insta::assert_snapshot!(output, @"
     @  qpvuntsm/1 test.user@example.com 2001-02-03 08:05:08 556daeb7 (divergent)
     │  description 1
-    │  -- operation 30d053d9072b describe commit d0c049cd993a8d3a2e69ba6df98788e264ea9fa1
+    │  -- operation 9f0f4cf63fe8 describe commit d0c049cd993a8d3a2e69ba6df98788e264ea9fa1
     ○  qpvuntsm/2 test.user@example.com 2001-02-03 08:05:08 d0c049cd (hidden)
     │  (no description set)
-    │  -- operation 8003ebfc58c1 snapshot working copy
+    │  -- operation 79eeaf807cc3 snapshot working copy
     ○  qpvuntsm/3 test.user@example.com 2001-02-03 08:05:07 e8849ae1 (hidden)
        (empty) (no description set)
-       -- operation f63ee16f9553 add workspace 'default'
+       -- operation 3366dbbb81ac add workspace 'default'
     [EOF]
     ");
 

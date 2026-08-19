@@ -31,8 +31,8 @@ use bstr::BString;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
-use gix::remote::fetch::Shallow;
 use gix::refspec::Instruction;
+use gix::remote::fetch::Shallow;
 use itertools::Itertools as _;
 use thiserror::Error;
 

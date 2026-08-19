@@ -35,7 +35,7 @@ fn test_concurrent_operation_divergence() -> TestResult {
     insta::assert_snapshot!(output, @r#"
     ------- stderr -------
     Error: The "@" expression resolved to more than one operation
-    Hint: Try specifying one of the operations by ID: ea7c53a69ce3, 4633795cf208
+    Hint: Try specifying one of the operations by ID: 00613ccf6e6e, ddbb59c4336d
     [EOF]
     [exit status: 1]
     "#);
@@ -172,19 +172,19 @@ fn test_concurrent_snapshot_wc_reloadable() -> TestResult {
     let template = r#"id.short() ++ "\n" ++ description ++ "\n" ++ attributes"#;
     let output = work_dir.run_jj(["op", "log", "-T", template]);
     insta::assert_snapshot!(output, @"
-    @  19e98b8a85da
+    @  3b27ed645eea
     │  commit c91a0909a9d3f3d8392ba9fab88f4b40fc0810ee
     │  args: jj commit -m 'new child1'
-    ○  55121d9434d0
+    ○  83a688227bb4
     │  snapshot working copy
     │  args: jj commit -m 'new child1'
-    ○  9f9c49403b99
+    ○  5987bbab6546
     │  commit 9af4c151edead0304de97ce3a0b414552921a425
     │  args: jj commit -m initial
-    ○  42ddf0a4e4f1
+    ○  ec04115cd3ee
     │  snapshot working copy
     │  args: jj commit -m initial
-    ○  f63ee16f9553
+    ○  3366dbbb81ac
     │  add workspace 'default'
     ○  000000000000
 

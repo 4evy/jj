@@ -36,10 +36,10 @@ fn test_op_log() {
 
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  7749eb4df93f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    @  a7015501c48f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │  args: jj describe -m 'description 0'
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -168,10 +168,10 @@ fn test_op_log_with_custom_symbols() {
         "--config=templates.op_log_node='if(current_operation, \"$\", if(root, \"┴\", \"┝\"))'",
     ]);
     insta::assert_snapshot!(output, @"
-    $  7749eb4df93f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    $  a7015501c48f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │  args: jj describe -m 'description 0'
-    ┝  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ┝  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ┴  000000000000 root()
     [EOF]
@@ -244,7 +244,7 @@ fn test_op_log_no_graph() {
 
     let output = work_dir.run_jj(["op", "log", "--no-graph", "--color=always"]);
     insta::assert_snapshot!(output, @"
-    [1m[38;5;12mf63ee16f9553[39m [38;5;3mtest-username@host.example.com[39m [38;5;14m2001-02-03 04:05:07.000 +07:00[39m - [38;5;14m2001-02-03 04:05:07.000 +07:00[39m[0m
+    [1m[38;5;12m3366dbbb81ac[39m [38;5;3mtest-username@host.example.com[39m [38;5;14m2001-02-03 04:05:07.000 +07:00[39m - [38;5;14m2001-02-03 04:05:07.000 +07:00[39m[0m
     [1madd workspace 'default'[0m
     [38;5;4m000000000000[39m [38;5;2mroot()[39m
     [EOF]
@@ -278,9 +278,9 @@ fn test_op_log_reversed() {
     let output = work_dir.run_jj(["op", "log", "--reversed"]);
     insta::assert_snapshot!(output, @"
     ○  000000000000 root()
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
-    @  7749eb4df93f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    @  a7015501c48f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
        describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
        args: jj describe -m 'description 0'
     [EOF]
@@ -374,7 +374,7 @@ fn test_op_log_no_graph_null_terminated() {
             r#"id.short(4) ++ "\0""#,
         ])
         .success();
-    insta::assert_debug_snapshot!(output.stdout.normalized(), @r#""bdb7\0a4de\0f63e\00000\0""#);
+    insta::assert_debug_snapshot!(output.stdout.normalized(), @r#""1416\0fcf5\03366\00000\0""#);
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn test_op_log_template() -> TestResult {
     let render = |template| work_dir.run_jj(["op", "log", "-T", template]);
 
     insta::assert_snapshot!(render(r#"id ++ "\n""#), @"
-    @  f63ee16f95539ec5bda4a7178aa3ace2bf594719aa2cc3410cfc4d070cb31ae31225bef146eb2428baf760180976c936cd60891e7a9087e6836d3a315fe81030
+    @  3366dbbb81acd47912eefdd535964937e924b1b40b20d2be004419accf643019dc6b187c475a951ac01ff4686a0cca9ee31a4948db644344cbdec7164d2bdb00
     ○  00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
     [EOF]
     ");
@@ -443,10 +443,10 @@ fn test_op_log_builtin_templates() {
         .success();
 
     insta::assert_snapshot!(render(r#"builtin_op_log_compact"#), @"
-    7749eb4df93f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    a7015501c48f test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     args: jj describe -m 'description 0'
-    f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     add workspace 'default'
     000000000000 root()
     [EOF]
@@ -492,10 +492,10 @@ fn test_op_log_word_wrap() {
 
     // ui.log-word-wrap option works
     insta::assert_snapshot!(render(&["op", "log"], 40, false), @"
-    @  2c5632322012 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    @  7959ab5e2f46 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  snapshot working copy
     │  args: jj debug snapshot
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -647,7 +647,7 @@ fn test_op_log_configurable() {
 
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  37978585dec5 my-username@my-hostname 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    @  0b123e55d274 my-username@my-hostname 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -701,7 +701,7 @@ fn test_op_abandon_invalid() {
     let output = work_dir.run_jj(["op", "abandon", "@-.."]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Cannot abandon the current operation 0facabbe7f97
+    Error: Cannot abandon the current operation 50747b4db261
     Hint: Run `jj undo` to revert the current operation, then use `jj op abandon`
     [EOF]
     [exit status: 1]
@@ -730,13 +730,13 @@ fn test_op_abandon_ancestors() {
     work_dir.run_jj(["commit", "-m", "commit 1"]).success();
     work_dir.run_jj(["commit", "-m", "commit 2"]).success();
     insta::assert_snapshot!(work_dir.run_jj(["op", "log"]), @"
-    @  b004de1c8d83 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    @  e91087c5a443 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     │  commit 4e0592f3dd52e7a4998a97d9a1f354e2727a856b
     │  args: jj commit -m 'commit 2'
-    ○  5d7c2b4596e3 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    ○  1a205abc90dc test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │  args: jj commit -m 'commit 1'
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -859,7 +859,7 @@ fn test_op_abandon_without_updating_working_copy() {
     [EOF]
     ");
     insta::assert_snapshot!(work_dir.run_jj(["debug", "local-working-copy", "--ignore-working-copy"]), @r#"
-    Current operation: OperationId("62f41230e57ec67e2181e49cbc7c2e43c42aaddd5ea7f10c401ba6e0e92c20c22815994ff9993e0e0625561c7f9e0d9b2e9817cdcedb3d19dce5609be43a0859")
+    Current operation: OperationId("3415fbcce02c388b8d01763d74d95a8553c94cb9ab142bb72e38142491a609c1a930278ee292054fad35a8f0d1aaf13c9ec583e4bb6e303e625197c1ba82cccf")
     Current tree: MergedTree { tree_ids: Resolved(TreeId("4b825dc642cb6eb9a060e54bf8d69288fbee4904")), labels: Unlabeled, .. }
     [EOF]
     "#);
@@ -907,7 +907,7 @@ fn test_op_abandon_multiple_heads() {
         .run_jj(["op", "log", "--no-graph", r#"-Tid.short() ++ "\n""#])
         .success();
     let [head_op_id, prev_op_id] = output.stdout.raw().lines().next_array().unwrap();
-    insta::assert_snapshot!(head_op_id, @"62f41230e57e");
+    insta::assert_snapshot!(head_op_id, @"3415fbcce02c");
     insta::assert_snapshot!(prev_op_id, @"b004de1c8d83");
 
     // Create 1 other concurrent operation.
@@ -1004,7 +1004,7 @@ fn test_op_recover_from_bad_gc() -> TestResult {
         .run_jj(["op", "log", "--no-graph", r#"-Tid.short() ++ "\n""#])
         .success();
     let [head_op_id, _, _, bad_op_id] = output.stdout.raw().lines().next_array().unwrap();
-    insta::assert_snapshot!(head_op_id, @"f578e4970373");
+    insta::assert_snapshot!(head_op_id, @"1a9464314c45");
     insta::assert_snapshot!(bad_op_id, @"ed13d7dc6cbe");
 
     // Corrupt the repo by removing hidden but reachable commit object.
@@ -1098,7 +1098,7 @@ fn test_op_corrupted_operation_file() -> TestResult {
         .join(PathBuf::from_iter([".jj", "repo", "op_store"]));
 
     let op_id = work_dir.current_operation_id();
-    insta::assert_snapshot!(op_id, @"f63ee16f95539ec5bda4a7178aa3ace2bf594719aa2cc3410cfc4d070cb31ae31225bef146eb2428baf760180976c936cd60891e7a9087e6836d3a315fe81030");
+    insta::assert_snapshot!(op_id, @"3366dbbb81acd47912eefdd535964937e924b1b40b20d2be004419accf643019dc6b187c475a951ac01ff4686a0cca9ee31a4948db644344cbdec7164d2bdb00");
 
     let op_file_path = op_store_path.join("operations").join(&op_id);
     assert!(op_file_path.exists());
@@ -1144,7 +1144,7 @@ fn test_op_summary_diff_template() {
     let output = work_dir.run_jj(["op", "revert", "--color=always"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Reverted operation: [38;5;4m159a7c4ed8f0[39m ([38;5;6m2001-02-03 08:05:08[39m) new empty commit
+    Reverted operation: [38;5;4mdbc364f66805[39m ([38;5;6m2001-02-03 08:05:08[39m) new empty commit
     [EOF]
     ");
     let output = work_dir.run_jj([
@@ -1220,16 +1220,16 @@ fn test_op_diff() {
     // Overview of op log.
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  c398dc66e5f4 test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
+    @  926bdabffce3 test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
     │  track remote bookmark bookmark-1@origin
     │  args: jj bookmark track bookmark-1
-    ○  47cfe27aee78 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    ○  57e283613b00 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     │  fetch from git remote(s) origin
     │  args: jj git fetch
-    ○  0dcdecd46a3d test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    ○  59238f3e5002 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  add git remote origin
     │  args: jj git remote add origin ../git-repo
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -1729,8 +1729,8 @@ fn test_op_diff_patch() {
     ");
     let output = work_dir.run_jj(["op", "diff", "--op", "@-", "-p", "--git"]);
     insta::assert_snapshot!(output, @"
-    From operation: f63ee16f9553 (2001-02-03 08:05:07) add workspace 'default'
-      To operation: 494872ff8b1e (2001-02-03 08:05:08) snapshot working copy
+    From operation: 3366dbbb81ac (2001-02-03 08:05:07) add workspace 'default'
+      To operation: b977717fa419 (2001-02-03 08:05:08) snapshot working copy
 
     Changed commits:
     ○  + qpvuntsm 6b57e33c (no description set)
@@ -1831,7 +1831,7 @@ fn test_op_diff_sibling() {
         .run_jj(["op", "log", "--no-graph", r#"-Tid.short() ++ "\n""#])
         .success();
     let base_op_id = output.stdout.raw().lines().next().unwrap();
-    insta::assert_snapshot!(base_op_id, @"f63ee16f9553");
+    insta::assert_snapshot!(base_op_id, @"3366dbbb81ac");
 
     // Create merge commit at one operation side. The parent trees will have to
     // be merged when diffing, which requires the commit index of this side.
@@ -2033,8 +2033,8 @@ fn test_op_diff_divergent_change() {
         &divergent_op_id,
     ]);
     insta::assert_snapshot!(output, @"
-    From operation: 6f308a91623b (2001-02-03 08:05:08) commit 5d86d4b609080a15077fcd723e537582d5ea6559
-      To operation: 1259e1240aef (2001-02-03 08:05:11) describe commit 7a72a9ad7f4d8aa8b613a9840313b0ef0632842b
+    From operation: 489b6bd4f5aa (2001-02-03 08:05:08) commit 5d86d4b609080a15077fcd723e537582d5ea6559
+      To operation: 556035908918 (2001-02-03 08:05:11) describe commit 7a72a9ad7f4d8aa8b613a9840313b0ef0632842b
 
     Changed commits:
     ○  + rlvkpnrz/0 c5cad9ab (divergent) 2b
@@ -2240,9 +2240,9 @@ fn test_op_diff_at_merge_op_with_rebased_commits() {
     // FIXME: the diff should be empty
     let output = work_dir.run_jj(["op", "diff"]);
     insta::assert_snapshot!(output, @"
-    From operation: e20b9b9f8704 (2001-02-03 08:05:09) describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
-    From operation: 71ec13d562f6 (2001-02-03 08:05:10) describe commit ab92d1a87bebb4300165a16a753c5403bd7bc578
-      To operation: 110aea121037 (2001-02-03 08:05:11) reconcile divergent operations
+    From operation: a98c4d5d357f (2001-02-03 08:05:09) describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
+    From operation: 845d5319edea (2001-02-03 08:05:10) describe commit ab92d1a87bebb4300165a16a753c5403bd7bc578
+      To operation: 984b83902e00 (2001-02-03 08:05:11) reconcile divergent operations
 
     Changed commits:
     ○  + rlvkpnrz/1 8f35f6a6 (divergent) (empty) 2b
@@ -2316,8 +2316,8 @@ fn test_op_diff_word_wrap() {
 
     // ui.log-word-wrap option works, and diff stat respects content width
     insta::assert_snapshot!(render(&["op", "diff", "--from=@---", "--stat"], 40, true), @"
-    From operation: 267d2e28edfc (2001-02-03 08:05:07) add git remote origin
-      To operation: 668558c2bb9b (2001-02-03 08:05:08) snapshot working copy
+    From operation: b4acb6a682c7 (2001-02-03 08:05:07) add git remote origin
+      To operation: 63eef62ded66 (2001-02-03 08:05:08) snapshot working copy
 
     Changed commits:
     ○  + sqpuoqvx f6f32c19 (no description
@@ -2496,16 +2496,16 @@ fn test_op_show() {
     // Overview of op log.
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  c398dc66e5f4 test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
+    @  926bdabffce3 test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
     │  track remote bookmark bookmark-1@origin
     │  args: jj bookmark track bookmark-1
-    ○  47cfe27aee78 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    ○  57e283613b00 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     │  fetch from git remote(s) origin
     │  args: jj git fetch
-    ○  0dcdecd46a3d test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    ○  59238f3e5002 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  add git remote origin
     │  args: jj git remote add origin ../git-repo
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -2845,7 +2845,7 @@ fn test_op_show_patch() {
     ");
     let output = work_dir.run_jj(["op", "show", "@-", "-p", "--git"]);
     insta::assert_snapshot!(output, @"
-    494872ff8b1e test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    b977717fa419 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     snapshot working copy
     args: jj new
 
@@ -3051,7 +3051,7 @@ fn test_op_show_template() {
         r#"separate(" ", id.short(), description)"#,
         "--no-op-diff",
     ]);
-    insta::assert_snapshot!(output, @"22e6b90c70c1 commit 0883ea507656cce545dbba9f23760ff72dff5174[EOF]");
+    insta::assert_snapshot!(output, @"ef8fcb710f04 commit 0883ea507656cce545dbba9f23760ff72dff5174[EOF]");
 
     // Test --no-op-diff flag suppresses the diff
     let output = work_dir.run_jj(["op", "show", "--no-op-diff"]);
@@ -3098,13 +3098,13 @@ fn test_op_log_parents() {
     let template = r#"id.short() ++ "\nP: " ++ parents.len() ++ " " ++ parents.map(|o| o.id().short()) ++ "\n""#;
     let output = work_dir.run_jj(["op", "log", "-T", template]);
     insta::assert_snapshot!(output, @"
-    @    7f1c9ff8575c
-    ├─╮  P: 2 7749eb4df93f 3cb69b18c151
-    ○ │  7749eb4df93f
-    │ │  P: 1 f63ee16f9553
-    │ ○  3cb69b18c151
-    ├─╯  P: 1 f63ee16f9553
-    ○  f63ee16f9553
+    @    785742cb415e
+    ├─╮  P: 2 a7015501c48f 55db4ac7b5ac
+    ○ │  a7015501c48f
+    │ │  P: 1 3366dbbb81ac
+    │ ○  55db4ac7b5ac
+    ├─╯  P: 1 3366dbbb81ac
+    ○  3366dbbb81ac
     │  P: 1 000000000000
     ○  000000000000
        P: 0
@@ -3126,10 +3126,10 @@ fn test_op_log_anonymize() {
 
     let output = work_dir.run_jj(["op", "log", "-Tbuiltin_op_log_redacted"]);
     insta::assert_snapshot!(output, @"
-    @  7749eb4df93f user-5910 workspace-ab88@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    @  a7015501c48f user-5910 workspace-ab88@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │  (redacted)
-    ○  f63ee16f9553 user-5910 workspace-482a@ 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac user-5910 workspace-482a@ 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -3162,7 +3162,7 @@ fn test_op_immutable_revisions() {
         .run_jj(["abandon", "--ignore-immutable", "::t1 & ~root()"])
         .success();
     insta::assert_snapshot!(work_dir.run_jj(["op", "show"]), @"
-    57739a739904 test-username@host.example.com default@ 2001-02-03 04:05:16.000 +07:00 - 2001-02-03 04:05:16.000 +07:00
+    00d6757bf5bf test-username@host.example.com default@ 2001-02-03 04:05:16.000 +07:00 - 2001-02-03 04:05:16.000 +07:00
     abandon commit 9c86781f3fe9097ffc530e65fd2ab4aff1e654bd and 5 more
     args: jj abandon --ignore-immutable '::t1 & ~root()'
 
@@ -3561,7 +3561,7 @@ commit_summary = 'commit_id.short() ++ " " ++ description.first_line()'
     // 5. Test op show for op_rebase: should show ELISION summary.
     // bookmark_x exists in both states of the rebase.
     insta::assert_snapshot!(work_dir.run_jj(["op", "show", &op_rebase]), @"
-    f03470add4fa test-username@host.example.com default@ 2001-02-03 04:05:14.000 +07:00 - 2001-02-03 04:05:14.000 +07:00
+    20759ff2497c test-username@host.example.com default@ 2001-02-03 04:05:14.000 +07:00 - 2001-02-03 04:05:14.000 +07:00
     rebase commit 0f12cf5c679b373cb1ee0fa3e441c2f5030c4dc9 and descendants
     args: jj rebase -s bookmark_x- -d @
 
