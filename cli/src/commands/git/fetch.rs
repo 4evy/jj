@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::io;
+use std::num::NonZeroU32;
 
 use clap_complete::ArgValueCandidates;
 use itertools::Itertools as _;
@@ -125,6 +126,13 @@ pub struct GitFetchArgs {
     /// Fetch from all remotes
     #[arg(long, conflicts_with = "remotes")]
     all_remotes: bool,
+
+    /// Limit fetching to the specified number of commits from each tip
+    ///
+    /// In an existing shallow repository, this defaults to the
+    /// `git.fetch-depth` setting when configured.
+    #[arg(long)]
+    depth: Option<NonZeroU32>,
 }
 
 #[tracing::instrument(skip_all)]
@@ -232,34 +240,51 @@ pub async fn cmd_git_fetch(
     }
 
     let git_settings = GitSettings::from_settings(tx.settings())?;
+    let depth = super::get_git_fetch_depth(tx.settings(), tx.repo().store(), args.depth)?;
     let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
+    let index_store = tx.repo().base_repo().index_store().clone();
     let mut git_fetch = GitFetch::new(
         tx.repo_mut(),
         git_settings.to_subprocess_options(),
         &import_options,
     )?;
 
-    for (remote, expanded) in expansions {
-        let mut callback = GitSubprocessUi::new(ui);
-        git_fetch.fetch(remote, expanded, &mut callback, None)?;
+    let fetch_result: Result<_, CommandError> = async {
+        for (remote, expanded) in expansions {
+            let mut callback = GitSubprocessUi::new(ui);
+            git_fetch.fetch(remote, expanded, &mut callback, depth)?;
+        }
+        Ok(git_fetch.import_refs().await?)
     }
+    .await;
+    let shallow_boundary_changed = git_fetch.shallow_boundary_changed();
+    drop(git_fetch);
+    let result: Result<(), CommandError> = async {
+        let import_stats = fetch_result?;
+        print_git_import_stats(ui, &tx, &import_stats)?;
 
-    let import_stats = git_fetch.import_refs().await?;
-    print_git_import_stats(ui, &tx, &import_stats)?;
-
-    if let Some(bookmark_expr) = &common_bookmark_expr {
-        warn_if_branches_not_found(ui, &tx, bookmark_expr, &matching_remotes)?;
+        if let Some(bookmark_expr) = &common_bookmark_expr {
+            warn_if_branches_not_found(ui, &tx, bookmark_expr, &matching_remotes)?;
+        }
+        // TODO: warn_if_tags_not_found()
+        tx.finish(
+            ui,
+            format!(
+                "fetch from git remote(s) {}",
+                matching_remotes.iter().map(|n| n.as_symbol()).join(",")
+            ),
+        )
+        .await?;
+        Ok(())
     }
-    // TODO: warn_if_tags_not_found()
-    tx.finish(
+    .await;
+    let reinit_result = super::reinit_index_after_shallow_change(
         ui,
-        format!(
-            "fetch from git remote(s) {}",
-            matching_remotes.iter().map(|n| n.as_symbol()).join(",")
-        ),
-    )
-    .await?;
-    Ok(())
+        index_store.as_ref(),
+        shallow_boundary_changed,
+    );
+    result?;
+    reinit_result
 }
 
 const DEFAULT_REMOTE: &RemoteName = RemoteName::new("origin");

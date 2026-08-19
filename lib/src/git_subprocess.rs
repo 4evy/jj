@@ -15,7 +15,6 @@
 use std::io;
 use std::io::BufReader;
 use std::io::Read;
-use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
@@ -25,6 +24,7 @@ use std::thread;
 
 use bstr::BStr;
 use bstr::ByteSlice as _;
+use gix::remote::fetch::Shallow;
 use itertools::Itertools as _;
 use thiserror::Error;
 
@@ -161,17 +161,17 @@ impl GitSubprocessContext {
         })
     }
 
-    /// Perform a git fetch
+    /// Perform a Git fetch with shallow-history controls.
     ///
-    /// [`GitFetchStatus::NoRemoteRef`] is returned if ref doesn't exist. Note
+    /// [`GitFetchStatus::NoRemoteRef`] is returned if a ref doesn't exist. Note
     /// that `git` only returns one failed ref at a time.
-    pub(crate) fn spawn_fetch(
+    pub(crate) fn spawn_fetch_with_options(
         &self,
         remote_name: &RemoteName,
         refspecs: &[RefSpec],
         negative_refspecs: &[NegativeRefSpec],
         callback: &mut dyn GitSubprocessCallback,
-        depth: Option<NonZeroU32>,
+        shallow: Shallow,
     ) -> Result<GitFetchStatus, GitSubprocessError> {
         if refspecs.is_empty() {
             return Ok(GitFetchStatus::Updates(GitRefUpdates::default()));
@@ -184,8 +184,28 @@ impl GitSubprocessContext {
         if callback.needs_progress() {
             command.arg("--progress");
         }
-        if let Some(d) = depth {
-            command.arg(format!("--depth={d}"));
+        match shallow {
+            Shallow::NoChange => {}
+            Shallow::DepthAtRemote(depth) => {
+                command.arg(format!("--depth={depth}"));
+            }
+            Shallow::Deepen(depth) => {
+                command.arg(format!("--deepen={depth}"));
+            }
+            Shallow::Since { cutoff } => {
+                command.arg(format!("--shallow-since={cutoff}"));
+            }
+            Shallow::Exclude {
+                remote_refs,
+                since_cutoff,
+            } => {
+                if let Some(cutoff) = since_cutoff {
+                    command.arg(format!("--shallow-since={cutoff}"));
+                }
+                for remote_ref in remote_refs {
+                    command.arg(format!("--shallow-exclude={remote_ref}"));
+                }
+            }
         }
         // Tags should be fetched explicitly by the refspecs
         command.arg("--no-tags");

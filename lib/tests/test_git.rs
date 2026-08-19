@@ -6670,8 +6670,20 @@ fn test_shallow_commits_lack_parents() -> TestResult {
         "shallow commits have the root commit as a parent"
     );
 
-    // deepen the shallow clone
-    let repo = make_shallow(&repo, vec![a]);
+    // Deepen the shallow clone without changing the file's mtime. This forces
+    // refresh_shallow_state() to drop gix's mtime-based shallow-file cache.
+    let shallow_file = get_git_backend(&repo).git_repo().shallow_file();
+    let modified = fs::metadata(&shallow_file)?.modified()?;
+    let mut buf = Vec::<u8>::new();
+    writeln!(buf, "{a}").unwrap();
+    fs::write(&shallow_file, buf)?;
+    fs::File::options()
+        .write(true)
+        .open(&shallow_file)?
+        .set_times(fs::FileTimes::new().set_modified(modified))?;
+    assert_eq!(fs::metadata(&shallow_file)?.modified()?, modified);
+    get_git_backend(&repo).refresh_shallow_state()?;
+    repo.store().clear_caches();
 
     let mut tx = repo.start_transaction();
     git::import_refs(tx.repo_mut(), &import_options).block_on()?;

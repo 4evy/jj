@@ -2,6 +2,7 @@
 [git]
 abandon-unreachable-commits = false
 fetch = ["origin", "fork"]
+fetch-depth = 42
 push = "fork"
 record-synthetic-predecessors = false
 sign-on-push = true

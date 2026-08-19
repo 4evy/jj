@@ -31,6 +31,7 @@ use bstr::BString;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
+use gix::remote::fetch::Shallow;
 use gix::refspec::Instruction;
 use itertools::Itertools as _;
 use thiserror::Error;
@@ -2758,6 +2759,12 @@ pub enum GitFetchError {
     RejectedUpdates(Vec<GitRefNameBuf>),
     #[error(transparent)]
     Subprocess(#[from] GitSubprocessError),
+    #[error("Failed to read Git shallow commits")]
+    ShallowCommits(#[source] gix::shallow::read::Error),
+    #[error("Failed to refresh Git repository after shallow boundary changed")]
+    RefreshShallowState(#[source] Box<gix::open::Error>),
+    #[error(transparent)]
+    UnexpectedBackend(#[from] UnexpectedGitBackendError),
 }
 
 #[derive(Error, Debug)]
@@ -3103,6 +3110,8 @@ pub struct GitFetch<'a> {
     git_ctx: GitSubprocessContext,
     import_options: &'a GitImportOptions,
     fetched: Vec<FetchedRefs>,
+    shallow_commits: Vec<gix::ObjectId>,
+    shallow_boundary_changed: bool,
 }
 
 impl<'a> GitFetch<'a> {
@@ -3110,9 +3119,10 @@ impl<'a> GitFetch<'a> {
         mut_repo: &'a mut MutableRepo,
         subprocess_options: GitSubprocessOptions,
         import_options: &'a GitImportOptions,
-    ) -> Result<Self, UnexpectedGitBackendError> {
+    ) -> Result<Self, GitFetchError> {
         let git_backend = get_git_backend(mut_repo.store())?;
         let git_repo = Box::new(git_backend.git_repo());
+        let shallow_commits = read_shallow_commits(&git_repo)?;
         let git_ctx = GitSubprocessContext::from_git_backend(git_backend, subprocess_options);
         Ok(GitFetch {
             mut_repo,
@@ -3120,7 +3130,66 @@ impl<'a> GitFetch<'a> {
             git_ctx,
             import_options,
             fetched: vec![],
+            shallow_commits,
+            shallow_boundary_changed: false,
         })
+    }
+
+    fn refresh_shallow_state(&mut self) -> Result<(), GitFetchError> {
+        // A Git subprocess may update the shallow file without changing its
+        // modification time, so force gix to drop its file snapshot first.
+        self.git_repo
+            .reload()
+            .map_err(|err| GitFetchError::RefreshShallowState(Box::new(err)))?;
+        let shallow_commits = read_shallow_commits(&self.git_repo)?;
+        if shallow_commits != self.shallow_commits {
+            let git_backend = get_git_backend(self.mut_repo.store())?;
+            git_backend
+                .refresh_shallow_state()
+                .map_err(GitFetchError::RefreshShallowState)?;
+            self.mut_repo.store().clear_caches();
+            self.shallow_commits = shallow_commits;
+            self.shallow_boundary_changed = true;
+        }
+        Ok(())
+    }
+
+    fn spawn_fetch(
+        &mut self,
+        remote_name: &RemoteName,
+        refspecs: &[RefSpec],
+        negative_refspecs: &[NegativeRefSpec],
+        callback: &mut dyn GitSubprocessCallback,
+        depth: Option<NonZeroU32>,
+    ) -> Result<GitFetchStatus, GitFetchError> {
+        self.spawn_fetch_with_options(
+            remote_name,
+            refspecs,
+            negative_refspecs,
+            callback,
+            depth.map_or(Shallow::NoChange, Shallow::DepthAtRemote),
+        )
+    }
+
+    fn spawn_fetch_with_options(
+        &mut self,
+        remote_name: &RemoteName,
+        refspecs: &[RefSpec],
+        negative_refspecs: &[NegativeRefSpec],
+        callback: &mut dyn GitSubprocessCallback,
+        shallow: Shallow,
+    ) -> Result<GitFetchStatus, GitFetchError> {
+        let fetch_result = self.git_ctx.spawn_fetch_with_options(
+            remote_name,
+            refspecs,
+            negative_refspecs,
+            callback,
+            shallow,
+        );
+        // Git may update the shallow boundary even when the overall fetch
+        // exits unsuccessfully, so refresh before propagating either result.
+        self.refresh_shallow_state()?;
+        Ok(fetch_result?)
     }
 
     /// Perform a `git fetch` on the local git repo, updating the
@@ -3161,7 +3230,7 @@ impl<'a> GitFetch<'a> {
         // even more unfortunately, git errors out one refspec at a time,
         // meaning that the below cycle runs in O(#failed refspecs)
         let updates = loop {
-            let status = self.git_ctx.spawn_fetch(
+            let status = self.spawn_fetch(
                 remote_name,
                 &remaining_refspecs,
                 &negative_refspecs,
@@ -3210,6 +3279,7 @@ impl<'a> GitFetch<'a> {
         source: &str,
         callback: &mut dyn GitSubprocessCallback,
         depth: Option<NonZeroU32>,
+        shallow_exclude: Option<&str>,
     ) -> Result<CommitId, GitFetchError> {
         validate_remote_name(remote_name)?;
         if <&gix::refs::PartialNameRef>::try_from(source).is_err() {
@@ -3233,32 +3303,57 @@ impl<'a> GitFetch<'a> {
         let refspec = RefSpec::forced(source, temporary_ref_name.as_str());
         let no_negative_refspecs = [];
         let fetch_result = (|| {
-            let updates = match self.git_ctx.spawn_fetch(
-                remote_name,
-                std::slice::from_ref(&refspec),
-                &no_negative_refspecs,
-                callback,
-                depth,
-            )? {
-                GitFetchStatus::Updates(updates) => updates,
-                GitFetchStatus::NoRemoteRef(_) => {
-                    return Err(GitFetchError::NoSuchSource {
-                        remote: remote_name.to_owned(),
-                        fetch_source: source.to_owned(),
-                    });
+            let check_status = |status| match status {
+                GitFetchStatus::Updates(updates) if updates.rejected.is_empty() => Ok(()),
+                GitFetchStatus::Updates(updates) => {
+                    let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
+                    Err(GitFetchError::RejectedUpdates(names))
                 }
+                GitFetchStatus::NoRemoteRef(_) => Err(GitFetchError::NoSuchSource {
+                    remote: remote_name.to_owned(),
+                    fetch_source: source.to_owned(),
+                }),
             };
-            if !updates.rejected.is_empty() {
-                let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
-                return Err(GitFetchError::RejectedUpdates(names));
+
+            if let Some(excluded_source) = shallow_exclude {
+                let excluded_ref = gix::refs::PartialName::try_from(excluded_source).map_err(|_| {
+                    GitFetchError::InvalidSource {
+                        fetch_source: excluded_source.to_owned(),
+                    }
+                })?;
+                check_status(self.spawn_fetch_with_options(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    Shallow::Exclude {
+                        remote_refs: vec![excluded_ref],
+                        since_cutoff: None,
+                    },
+                )?)?;
+                check_status(self.spawn_fetch_with_options(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    Shallow::Deepen(1),
+                )?)?;
+            } else {
+                check_status(self.spawn_fetch(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    depth,
+                )?)?;
             }
 
             let reference = self
                 .git_repo
                 .find_reference(temporary_ref_name.as_str())
                 .map_err(|_| GitFetchError::NoSuchSource {
-                    remote: remote_name.to_owned(),
-                    fetch_source: source.to_owned(),
+                        remote: remote_name.to_owned(),
+                        fetch_source: source.to_owned(),
                 })?;
             let commit_id = resolve_git_ref_to_commit_id(&reference, None).ok_or_else(|| {
                 GitFetchError::NotACommit {
@@ -3343,6 +3438,18 @@ impl<'a> GitFetch<'a> {
 
         Ok(import_stats)
     }
+
+    /// Whether a fetch changed the Git shallow boundary.
+    pub fn shallow_boundary_changed(&self) -> bool {
+        self.shallow_boundary_changed
+    }
+}
+
+fn read_shallow_commits(git_repo: &gix::Repository) -> Result<Vec<gix::ObjectId>, GitFetchError> {
+    Ok(git_repo
+        .shallow_commits()
+        .map_err(GitFetchError::ShallowCommits)?
+        .map_or_else(Vec::new, |commits| commits.iter().copied().collect()))
 }
 
 #[derive(Error, Debug)]

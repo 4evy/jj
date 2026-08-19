@@ -184,7 +184,7 @@ async fn do_fetch(
     )?;
 
     let mut callback = GitSubprocessUi::new(ui);
-    let commit_id = git_fetch.fetch_commit(remote_name, source, &mut callback, None)?;
+    let commit_id = git_fetch.fetch_commit(remote_name, source, &mut callback, None, None)?;
     let commit = import_commit(tx.repo_mut(), commit_id).await?;
     if let Some(mut formatter) = ui.status_formatter() {
         write!(formatter, "Fetched {source} as ")?;

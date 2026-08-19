@@ -44,7 +44,6 @@ use gix::objs::Exists as _;
 use gix::objs::Write as _;
 use gix::objs::WriteTo as _;
 use itertools::Itertools as _;
-use once_cell::sync::OnceCell as OnceLock;
 use pollster::FutureExt as _;
 use prost::Message as _;
 use smallvec::SmallVec;
@@ -175,7 +174,7 @@ pub struct GitBackend {
     root_commit_id: CommitId,
     root_change_id: ChangeId,
     empty_tree_id: TreeId,
-    shallow_root_ids: OnceLock<Vec<CommitId>>,
+    shallow_root_ids: Mutex<Option<Arc<Vec<CommitId>>>>,
     extra_metadata_store: TableStore,
     cached_extra_metadata: Mutex<Option<Arc<ReadonlyTable>>>,
     git_executable: PathBuf,
@@ -203,7 +202,7 @@ impl GitBackend {
             root_commit_id,
             root_change_id,
             empty_tree_id,
-            shallow_root_ids: OnceLock::new(),
+            shallow_root_ids: Mutex::new(None),
             extra_metadata_store,
             cached_extra_metadata: Mutex::new(None),
             git_executable: git_settings.executable_path,
@@ -354,7 +353,7 @@ impl GitBackend {
 
     /// Returns new thread-local instance to access to the underlying Git repo.
     pub fn git_repo(&self) -> gix::Repository {
-        self.base_repo.to_thread_local()
+        self.repo.lock().unwrap().clone()
     }
 
     /// Path to the `.git` directory or the repository itself if it's bare.
@@ -367,23 +366,35 @@ impl GitBackend {
         self.base_repo.work_dir()
     }
 
-    fn shallow_root_ids(&self, git_repo: &gix::Repository) -> BackendResult<&[CommitId]> {
+    fn shallow_root_ids(&self, git_repo: &gix::Repository) -> BackendResult<Arc<Vec<CommitId>>> {
         // The list of shallow roots is cached by gix, but it's still expensive
         // to stat file on every read_object() call. Refreshing shallow roots is
         // also bad for consistency reasons.
-        self.shallow_root_ids
-            .get_or_try_init(|| {
-                let maybe_oids = git_repo
-                    .shallow_commits()
-                    .map_err(|err| BackendError::Other(err.into()))?;
-                let commit_ids = maybe_oids.map_or(vec![], |oids| {
-                    oids.iter()
-                        .map(|oid| CommitId::from_bytes(oid.as_bytes()))
-                        .collect()
-                });
-                Ok(commit_ids)
-            })
-            .map(AsRef::as_ref)
+        let mut cached = self.shallow_root_ids.lock().unwrap();
+        if let Some(commit_ids) = &*cached {
+            return Ok(commit_ids.clone());
+        }
+        let maybe_oids = git_repo
+            .shallow_commits()
+            .map_err(|err| BackendError::Other(err.into()))?;
+        let commit_ids = Arc::new(maybe_oids.map_or(vec![], |oids| {
+            oids.iter()
+                .map(|oid| CommitId::from_bytes(oid.as_bytes()))
+                .collect()
+        }));
+        *cached = Some(commit_ids.clone());
+        Ok(commit_ids)
+    }
+
+    /// Refreshes state cached before an external Git process changed the
+    /// shallow boundary.
+    pub fn refresh_shallow_state(&self) -> Result<(), Box<gix::open::Error>> {
+        // Keep the lock order consistent with read_commit(): repo, then roots.
+        let mut repo = self.repo.lock().unwrap();
+        let mut shallow_root_ids = self.shallow_root_ids.lock().unwrap();
+        repo.reload().map_err(Box::new)?;
+        *shallow_root_ids = None;
+        Ok(())
     }
 
     fn cached_extra_metadata_table(&self) -> BackendResult<Arc<ReadonlyTable>> {
@@ -456,12 +467,13 @@ impl GitBackend {
         );
         let (table, table_lock) = self.read_extra_metadata_table_locked()?;
         let mut mut_table = table.start_mutation();
+        let shallow_root_ids = self.shallow_root_ids(&locked_repo)?;
         import_extra_metadata_entries_from_heads(
             &locked_repo,
             &mut mut_table,
             &table_lock,
             &head_ids,
-            self.shallow_root_ids(&locked_repo)?,
+            &shallow_root_ids,
         )?;
         self.save_extra_metadata_table(mut_table, &table_lock)
     }

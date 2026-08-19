@@ -24,18 +24,22 @@ mod remote;
 mod root;
 
 use std::io::Write as _;
+use std::num::NonZeroU32;
 
 use clap::Subcommand;
 use jj_lib::config::ConfigFile;
+use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::config::ConfigLayer;
 use jj_lib::config::ConfigSource;
 use jj_lib::git;
 use jj_lib::git::UnexpectedGitBackendError;
+use jj_lib::index::IndexStore;
 use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::ref_name::RemoteRefSymbolBuf;
 use jj_lib::revset;
+use jj_lib::settings::UserSettings;
 use jj_lib::store::Store;
 use r#ref::RefCommand;
 use r#ref::cmd_git_ref;
@@ -62,6 +66,7 @@ use self::root::cmd_git_root;
 use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandHelper;
 use crate::command_error::CommandError;
+use crate::command_error::internal_error;
 use crate::command_error::user_error_with_message;
 use crate::config::ConfigEnv;
 use crate::config::RawConfig;
@@ -110,6 +115,37 @@ pub async fn cmd_git(
         GitCommand::Ref(args) => cmd_git_ref(ui, command, args).await,
         GitCommand::Remote(args) => cmd_git_remote(ui, command, args).await,
         GitCommand::Root(args) => cmd_git_root(ui, command, args).await,
+    }
+}
+
+fn reinit_index_after_shallow_change(
+    ui: &Ui,
+    index_store: &dyn IndexStore,
+    shallow_boundary_changed: bool,
+) -> Result<(), CommandError> {
+    if !shallow_boundary_changed {
+        return Ok(());
+    }
+    let default_index_store = index_store
+        .downcast_ref::<jj_lib::default_index::DefaultIndexStore>()
+        .ok_or_else(|| internal_error("cannot rebuild a non-default commit index"))?;
+    default_index_store.reinit().map_err(internal_error)?;
+    writeln!(
+        ui.status(),
+        "Shallow boundary changed; the commit index will be rebuilt."
+    )?;
+    Ok(())
+}
+
+fn get_git_fetch_depth(
+    settings: &UserSettings,
+    store: &Store,
+    requested_depth: Option<NonZeroU32>,
+) -> Result<Option<NonZeroU32>, CommandError> {
+    if requested_depth.is_some() || git::get_git_backend(store)?.git_repo().is_shallow() {
+        Ok(requested_depth.or(settings.get("git.fetch-depth").optional()?))
+    } else {
+        Ok(None)
     }
 }
 
