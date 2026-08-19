@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::num::NonZeroU32;
+
 use clap_complete::ArgValueCandidates;
 use itertools::Itertools as _;
 use jj_lib::commit::Commit;
+use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::git;
 use jj_lib::git::GitFetch;
 use jj_lib::git::GitSettings;
+use jj_lib::git::get_git_backend;
 use jj_lib::git::import_commit;
 use jj_lib::op_store::RefTarget;
 use jj_lib::ref_name::GitRefNameBuf;
@@ -76,6 +80,19 @@ pub struct GitRefFetchArgs {
     /// Allow --bookmark to move an existing local bookmark
     #[arg(long, requires = "bookmark")]
     replace: bool,
+
+    /// Limit fetching to the specified number of commits from each target
+    ///
+    /// In an existing shallow repository, this defaults to the
+    /// `git.fetch-depth` setting when configured.
+    #[arg(long, conflicts_with = "shallow_exclude")]
+    depth: Option<NonZeroU32>,
+
+    /// Fetch the complete stack after this ref, plus one parent generation
+    ///
+    /// This is only supported in an existing shallow repository.
+    #[arg(long, value_name = "REF", conflicts_with = "depth")]
+    shallow_exclude: Option<String>,
 }
 
 #[tracing::instrument(skip(ui, command))]
@@ -90,62 +107,98 @@ pub async fn cmd_git_ref_fetch(
     } else {
         get_default_fetch_remote(ui, &workspace_command)?
     };
+    let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
+    let is_shallow = git_repo.is_shallow();
+    if args.shallow_exclude.is_some() && !is_shallow {
+        return Err(user_error(
+            "--shallow-exclude is only supported in an existing shallow repository",
+        ));
+    }
+    let depth = if args.depth.is_some() || is_shallow {
+        args.depth.or(workspace_command
+            .settings()
+            .get("git.fetch-depth")
+            .optional()?)
+    } else {
+        None
+    };
+
     let mut tx = workspace_command.start_transaction();
-    let commit = do_fetch(ui, &mut tx, remote_name.as_ref(), &args.source).await?;
-
+    let index_store = tx.repo().base_repo().index_store().clone();
     let fetched_ref_name: GitRefNameBuf = args.source.as_str().into();
-    tx.repo_mut().set_fetched_git_ref_target(
-        remote_name.as_ref(),
-        fetched_ref_name.as_ref(),
-        RefTarget::normal(commit.id().clone()),
-    );
-
-    if let Some(bookmark_name) = &args.bookmark {
-        let existing_target = tx.repo().view().get_local_bookmark(bookmark_name);
-        if existing_target.is_present()
-            && existing_target.as_normal() != Some(commit.id())
-            && !args.replace
-        {
-            return Err(user_error(format!(
-                "Bookmark already exists: {name}",
-                name = bookmark_name.as_symbol()
-            ))
-            .hinted("Use --replace to move it to the fetched ref."));
-        }
-        tx.repo_mut()
-            .set_local_bookmark_target(bookmark_name, RefTarget::normal(commit.id().clone()));
-    }
-
-    if args.edit {
-        tx.base_workspace_helper()
-            .check_rewritable([commit.id()])
-            .await?;
-        tx.edit(&commit)?;
-    } else if args.new {
-        let merged_tree = merge_commit_trees(tx.repo(), std::slice::from_ref(&commit)).await?;
-        let new_commit = tx
-            .repo_mut()
-            .new_commit(vec![commit.id().clone()], merged_tree)
-            .write()
-            .await?;
-        tx.edit(&new_commit)?;
-        if let Some(mut formatter) = ui.status_formatter() {
-            write!(formatter, "Created new commit ")?;
-            tx.write_commit_summary(formatter.as_mut(), &new_commit)?;
-            writeln!(formatter)?;
-        }
-    }
-
-    tx.finish(
+    let (fetch_result, shallow_boundary_changed) = do_fetch(
         ui,
-        format!(
-            "fetch ref or commit ID {} from git remote {}",
-            args.source,
-            remote_name.as_symbol()
-        ),
+        &mut tx,
+        remote_name.as_ref(),
+        &args.source,
+        depth,
+        args.shallow_exclude.as_deref(),
     )
-    .await?;
-    Ok(())
+    .await;
+
+    let result: Result<(), CommandError> = async {
+        let commit = fetch_result?;
+        tx.repo_mut().set_fetched_git_ref_target(
+            remote_name.as_ref(),
+            fetched_ref_name.as_ref(),
+            RefTarget::normal(commit.id().clone()),
+        );
+
+        if let Some(bookmark_name) = &args.bookmark {
+            let existing_target = tx.repo().view().get_local_bookmark(bookmark_name);
+            if existing_target.is_present()
+                && existing_target.as_normal() != Some(commit.id())
+                && !args.replace
+            {
+                return Err(user_error(format!(
+                    "Bookmark already exists: {name}",
+                    name = bookmark_name.as_symbol()
+                ))
+                .hinted("Use --replace to move it to the fetched ref."));
+            }
+            tx.repo_mut()
+                .set_local_bookmark_target(bookmark_name, RefTarget::normal(commit.id().clone()));
+        }
+
+        if args.edit {
+            tx.base_workspace_helper()
+                .check_rewritable([commit.id()])
+                .await?;
+            tx.edit(&commit)?;
+        } else if args.new {
+            let merged_tree = merge_commit_trees(tx.repo(), std::slice::from_ref(&commit)).await?;
+            let new_commit = tx
+                .repo_mut()
+                .new_commit(vec![commit.id().clone()], merged_tree)
+                .write()
+                .await?;
+            tx.edit(&new_commit)?;
+            if let Some(mut formatter) = ui.status_formatter() {
+                write!(formatter, "Created new commit ")?;
+                tx.write_commit_summary(formatter.as_mut(), &new_commit)?;
+                writeln!(formatter)?;
+            }
+        }
+
+        tx.finish(
+            ui,
+            format!(
+                "fetch ref or commit ID {} from git remote {}",
+                args.source,
+                remote_name.as_symbol()
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    let reinit_result = super::super::reinit_index_after_shallow_change(
+        ui,
+        index_store.as_ref(),
+        shallow_boundary_changed,
+    );
+    result?;
+    reinit_result
 }
 
 fn get_default_fetch_remote(
@@ -173,24 +226,48 @@ async fn do_fetch(
     tx: &mut WorkspaceCommandTransaction<'_>,
     remote_name: &RemoteName,
     source: &str,
-) -> Result<Commit, CommandError> {
-    let remote_settings = tx.settings().remote_settings()?;
-    let git_settings = GitSettings::from_settings(tx.settings())?;
-    let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
-    let mut git_fetch = GitFetch::new(
+    depth: Option<NonZeroU32>,
+    shallow_exclude: Option<&str>,
+) -> (Result<Commit, CommandError>, bool) {
+    let setup = (|| {
+        let remote_settings = tx.settings().remote_settings()?;
+        let git_settings = GitSettings::from_settings(tx.settings())?;
+        let import_options = load_git_import_options(ui, &git_settings, &remote_settings)?;
+        Ok::<_, CommandError>((git_settings, import_options))
+    })();
+    let (git_settings, import_options) = match setup {
+        Ok(value) => value,
+        Err(err) => return (Err(err), false),
+    };
+    let mut git_fetch = match GitFetch::new(
         tx.repo_mut(),
         git_settings.to_subprocess_options(),
         &import_options,
-    )?;
+    ) {
+        Ok(fetcher) => fetcher,
+        Err(err) => return (Err(err.into()), false),
+    };
 
     let mut callback = GitSubprocessUi::new(ui);
-    let commit_id = git_fetch.fetch_commit(remote_name, source, &mut callback, None, None)?;
-    let commit = import_commit(tx.repo_mut(), commit_id).await?;
-    if let Some(mut formatter) = ui.status_formatter() {
-        write!(formatter, "Fetched {source} as ")?;
-        tx.write_commit_summary(formatter.as_mut(), &commit)?;
-        writeln!(formatter)?;
+    let fetch_result = git_fetch.fetch_commit(
+        remote_name,
+        source,
+        &mut callback,
+        depth,
+        shallow_exclude,
+    );
+    let shallow_boundary_changed = git_fetch.shallow_boundary_changed();
+    drop(git_fetch);
+    let result: Result<Commit, CommandError> = async {
+        let commit_id = fetch_result?;
+        let commit = import_commit(tx.repo_mut(), commit_id).await?;
+        if let Some(mut formatter) = ui.status_formatter() {
+            write!(formatter, "Fetched {source} as ")?;
+            tx.write_commit_summary(formatter.as_mut(), &commit)?;
+            writeln!(formatter)?;
+        }
+        Ok(commit)
     }
-
-    Ok(commit)
+    .await;
+    (result, shallow_boundary_changed)
 }
