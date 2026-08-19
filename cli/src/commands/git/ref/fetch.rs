@@ -15,6 +15,9 @@
 use std::num::NonZeroU32;
 
 use clap_complete::ArgValueCandidates;
+use gix::ObjectId;
+use gix::hash::Kind as ObjectHashKind;
+use gix::refs::FullName;
 use itertools::Itertools as _;
 use jj_lib::commit::Commit;
 use jj_lib::git;
@@ -35,6 +38,7 @@ use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandHelper;
 use crate::cli_util::WorkspaceCommandTransaction;
 use crate::command_error::CommandError;
+use crate::command_error::internal_error;
 use crate::command_error::user_error;
 use crate::commands::git::fetch::get_default_fetch_remotes;
 use crate::complete;
@@ -104,14 +108,14 @@ pub struct GitRefFetchArgs {
 enum ParsedFetchSource {
     Ref(GitRefNameBuf),
     Pattern(String),
-    Object(String),
+    Object(ObjectId),
 }
 
 fn parse_fetch_source(
     value: &str,
-    object_hash: gix::hash::Kind,
+    object_hash: ObjectHashKind,
 ) -> Result<ParsedFetchSource, CommandError> {
-    if let Ok(object_id) = gix::ObjectId::from_hex(value.as_bytes()) {
+    if let Ok(object_id) = ObjectId::from_hex(value.as_bytes()) {
         if object_id.kind() != object_hash {
             return Err(user_error(format!(
                 "Git object ID uses {}, but this repository uses {}",
@@ -119,13 +123,13 @@ fn parse_fetch_source(
                 object_hash
             )));
         }
-        return Ok(ParsedFetchSource::Object(value.to_owned()));
+        return Ok(ParsedFetchSource::Object(object_id));
     }
 
     let canonical_name = qualify_git_ref_name(value);
     if canonical_name.contains('*') {
         if canonical_name.matches('*').count() != 1
-            || gix::refs::FullName::try_from(canonical_name.replace('*', "x").as_str()).is_err()
+            || FullName::try_from(canonical_name.replace('*', "x").as_str()).is_err()
         {
             return Err(user_error(format!("Invalid Git ref pattern: {value}")));
         }
@@ -153,11 +157,11 @@ pub async fn cmd_git_ref_fetch(
         get_default_fetch_remote(ui, &workspace_command)?
     };
     let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
-    let fetch_sources = args
+    let fetch_sources: Vec<_> = args
         .sources
         .iter()
         .map(|value| parse_fetch_source(value, git_repo.object_hash()))
-        .collect::<Result<Vec<_>, _>>()?;
+        .try_collect()?;
     let has_single_target_option = args.new || args.edit || args.bookmark.is_some();
     if has_single_target_option
         && (fetch_sources.len() != 1 || matches!(&fetch_sources[0], ParsedFetchSource::Pattern(_)))
@@ -200,39 +204,52 @@ pub async fn cmd_git_ref_fetch(
                 );
             }
         }
-        let commit = &fetched_targets[0].commit;
-
-        if let Some(bookmark_name) = &args.bookmark {
-            let existing_target = tx.repo().view().get_local_bookmark(bookmark_name);
-            if existing_target.is_present()
-                && existing_target.as_normal() != Some(commit.id())
-                && !args.replace
-            {
-                return Err(user_error(format!(
-                    "Bookmark already exists: {name}",
-                    name = bookmark_name.as_symbol()
-                ))
-                .hinted("Use --replace to move it to the fetched ref."));
+        let single_commit = if has_single_target_option {
+            Some(
+                &fetched_targets
+                    .first()
+                    .ok_or_else(|| internal_error("fetch returned no targets"))?
+                    .commit,
+            )
+        } else {
+            None
+        };
+        if let Some(commit) = single_commit {
+            if let Some(bookmark_name) = &args.bookmark {
+                let existing_target = tx.repo().view().get_local_bookmark(bookmark_name);
+                if existing_target.is_present()
+                    && existing_target.as_normal() != Some(commit.id())
+                    && !args.replace
+                {
+                    return Err(user_error(format!(
+                        "Bookmark already exists: {name}",
+                        name = bookmark_name.as_symbol()
+                    ))
+                    .hinted("Use --replace to move it to the fetched ref."));
+                }
+                tx.repo_mut().set_local_bookmark_target(
+                    bookmark_name,
+                    RefTarget::normal(commit.id().clone()),
+                );
             }
-            tx.repo_mut()
-                .set_local_bookmark_target(bookmark_name, RefTarget::normal(commit.id().clone()));
-        }
 
-        if args.edit {
-            tx.check_rewritable([commit.id()]).await?;
-            tx.edit(commit)?;
-        } else if args.new {
-            let merged_tree = merge_commit_trees(tx.repo(), std::slice::from_ref(commit)).await?;
-            let new_commit = tx
-                .repo_mut()
-                .new_commit(vec![commit.id().clone()], merged_tree)
-                .write()
-                .await?;
-            tx.edit(&new_commit)?;
-            if let Some(mut formatter) = ui.status_formatter() {
-                write!(formatter, "Created new commit ")?;
-                tx.write_commit_summary(formatter.as_mut(), &new_commit)?;
-                writeln!(formatter)?;
+            if args.edit {
+                tx.check_rewritable([commit.id()]).await?;
+                tx.edit(commit)?;
+            } else if args.new {
+                let merged_tree =
+                    merge_commit_trees(tx.repo(), std::slice::from_ref(commit)).await?;
+                let new_commit = tx
+                    .repo_mut()
+                    .new_commit(vec![commit.id().clone()], merged_tree)
+                    .write()
+                    .await?;
+                tx.edit(&new_commit)?;
+                if let Some(mut formatter) = ui.status_formatter() {
+                    write!(formatter, "Created new commit ")?;
+                    tx.write_commit_summary(formatter.as_mut(), &new_commit)?;
+                    writeln!(formatter)?;
+                }
             }
         }
 
@@ -340,14 +357,15 @@ async fn do_fetch(
                     }));
                 }
                 ParsedFetchSource::Object(object_id) => {
+                    let source = object_id.to_string();
                     let commit_id = git_fetch.fetch_commit(
                         remote_name,
-                        object_id,
+                        &source,
                         &mut callback,
                         depth,
                         shallow_exclude,
                     )?;
-                    fetched_ids.push((None, object_id.clone(), commit_id));
+                    fetched_ids.push((None, source, commit_id));
                 }
             }
         }

@@ -2721,12 +2721,8 @@ fn make_no_such_symbol_error(repo: &dyn Repo, name: String) -> RevsetResolutionE
     let bookmark_names = all_formatted_ref_symbols(repo.view().bookmarks(), include_synced_remotes);
     let fetched_ref_names = repo
         .view()
-        .fetched_git_refs()
-        .iter()
-        .flat_map(|(remote, refs)| {
-            refs.keys()
-                .map(|ref_name| format_remote_symbol(ref_name.as_str(), remote.as_str()))
-        });
+        .all_fetched_git_refs()
+        .map(|((remote, ref_name), _)| format_remote_symbol(ref_name.as_str(), remote.as_str()));
     let mut candidates = collect_similar(
         &name,
         itertools::chain!(tag_names, bookmark_names, fetched_ref_names),
@@ -3065,7 +3061,7 @@ fn resolve_commit_ref(
             let commit_ids = repo
                 .view()
                 .fetched_git_refs_matching(&name_matcher, &remote_matcher)
-                .flat_map(|(_, _, target)| target.added_ids())
+                .flat_map(|(_, target)| target.added_ids())
                 .cloned()
                 .collect();
             Ok(commit_ids)
