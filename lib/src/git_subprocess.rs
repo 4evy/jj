@@ -246,14 +246,10 @@ impl GitSubprocessContext {
         Ok(maybe_branch.map(Into::into))
     }
 
-    /// Push references to git
+    /// Pushes references to Git.
     ///
-    /// All pushes are forced, using --force-with-lease to perform a test&set
-    /// operation on the remote repository
-    ///
-    /// Return tuple with
-    ///     1. refs that failed to push
-    ///     2. refs that succeeded to push
+    /// Updates with expected locations use `--force-with-lease` to perform a
+    /// test-and-set operation. Other updates use forced refspecs.
     pub(crate) fn spawn_push(
         &self,
         remote_name: &RemoteName,
@@ -281,16 +277,14 @@ impl GitSubprocessContext {
         command.args(
             references
                 .iter()
-                .map(|reference| format!("--force-with-lease={}", reference.to_git_lease())),
+                .filter_map(|reference| reference.to_git_lease())
+                .map(|lease| format!("--force-with-lease={lease}")),
         );
         command.args(["--", remote_name.as_str()]);
-        // with --force-with-lease we cannot have the forced refspec,
-        // as it ignores the lease
-        command.args(
-            references
-                .iter()
-                .map(|r| r.refspec.to_git_format_not_forced()),
-        );
+        // A forced refspec bypasses `--force-with-lease`, so guarded updates
+        // use unforced refspecs. Unconditional updates keep their forced
+        // refspecs.
+        command.args(references.iter().map(RefToPush::to_git_format));
 
         let output = wait_with_progress(self.spawn_cmd(command)?, callback)?;
 
@@ -611,7 +605,11 @@ fn parse_ref_pushes(stdout: &[u8]) -> Result<GitPushStats, GitSubprocessError> {
             //  - for a successfully deleted ref
             //  * for a successfully pushed new ref
             //  =  for a ref that was up to date and did not need pushing.
-            b"+" | b"-" | b"*" | b"=" | b" " => {
+            b"=" => {
+                push_stats.up_to_date.push(reference.clone());
+                push_stats.pushed.push(reference);
+            }
+            b"+" | b"-" | b"*" | b" " => {
                 push_stats.pushed.push(reference);
             }
             // ! for a ref that was rejected or failed to push; and
@@ -1182,6 +1180,7 @@ Done";
         assert!(parse_ref_pushes(SAMPLE_NO_REMOTE_TRACKING_BRANCH_ERROR).is_err());
         let GitPushStats {
             pushed,
+            up_to_date,
             rejected,
             remote_rejected,
             unexported_bookmarks: _,
@@ -1196,6 +1195,10 @@ Done";
                 "refs/heads/bookmark5",
             ]
             .map(GitRefNameBuf::from)
+        );
+        assert_eq!(
+            up_to_date,
+            ["refs/heads/bookmark5"].map(GitRefNameBuf::from)
         );
         assert_eq!(
             rejected,
