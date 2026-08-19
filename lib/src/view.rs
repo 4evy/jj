@@ -33,6 +33,7 @@ use crate::ref_name::GitRefName;
 use crate::ref_name::GitRefNameBuf;
 use crate::ref_name::RefName;
 use crate::ref_name::RemoteName;
+use crate::ref_name::RemoteNameBuf;
 use crate::ref_name::RemoteRefSymbol;
 use crate::ref_name::WorkspaceName;
 use crate::ref_name::WorkspaceNameBuf;
@@ -105,6 +106,10 @@ impl View {
 
     pub fn git_refs(&self) -> &BTreeMap<GitRefNameBuf, RefTarget> {
         &self.data.git_refs
+    }
+
+    pub fn fetched_git_refs(&self) -> &BTreeMap<RemoteNameBuf, BTreeMap<GitRefNameBuf, RefTarget>> {
+        &self.data.fetched_git_refs
     }
 
     pub fn git_head(&self, workspace: &WorkspaceName) -> &RefTarget {
@@ -388,11 +393,20 @@ impl View {
 
     pub fn remove_remote(&mut self, remote_name: &RemoteName) {
         self.data.remote_views.remove(remote_name);
+        // Fetched Git refs are keyed by remote name and are user-visible as
+        // refs/...@remote, so remote removal must make them disappear too.
+        self.data.fetched_git_refs.remove(remote_name);
     }
 
     pub fn rename_remote(&mut self, old: &RemoteName, new: &RemoteName) {
         if let Some(remote_view) = self.data.remote_views.remove(old) {
             self.data.remote_views.insert(new.to_owned(), remote_view);
+        }
+        // Keep refs/...@remote resolution aligned with the renamed remote.
+        if let Some(fetched_refs) = self.data.fetched_git_refs.remove(old) {
+            self.data
+                .fetched_git_refs
+                .insert(new.to_owned(), fetched_refs);
         }
     }
 
@@ -574,6 +588,67 @@ impl View {
         }
     }
 
+    pub fn fetched_git_refs_for_remote(
+        &self,
+        remote_name: &RemoteName,
+    ) -> impl Iterator<Item = (&GitRefName, &RefTarget)> + use<'_> {
+        self.data
+            .fetched_git_refs
+            .get(remote_name)
+            .map(|refs| refs.iter().map(|(name, target)| (name.as_ref(), target)))
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn fetched_git_refs_matching(
+        &self,
+        ref_matcher: &StringMatcher,
+        remote_matcher: &StringMatcher,
+    ) -> impl Iterator<Item = (&RemoteName, &GitRefName, &RefTarget)> {
+        remote_matcher
+            .filter_btree_map_as_deref(&self.data.fetched_git_refs)
+            .map(|(remote, refs)| {
+                ref_matcher
+                    .filter_btree_map_as_deref(refs)
+                    .map(move |(name, target)| (remote.as_ref(), name.as_ref(), target))
+            })
+            .kmerge_by(|(remote1, name1, _), (remote2, name2, _)| {
+                (remote1, name1) < (remote2, name2)
+            })
+    }
+
+    pub fn get_fetched_git_ref(
+        &self,
+        remote_name: &RemoteName,
+        ref_name: &GitRefName,
+    ) -> &RefTarget {
+        self.data
+            .fetched_git_refs
+            .get(remote_name)
+            .and_then(|refs| refs.get(ref_name))
+            .flatten()
+    }
+
+    pub fn set_fetched_git_ref_target(
+        &mut self,
+        remote_name: &RemoteName,
+        ref_name: &GitRefName,
+        target: RefTarget,
+    ) {
+        if target.is_present() {
+            self.data
+                .fetched_git_refs
+                .entry(remote_name.to_owned())
+                .or_default()
+                .insert(ref_name.to_owned(), target);
+        } else if let Some(refs) = self.data.fetched_git_refs.get_mut(remote_name) {
+            refs.remove(ref_name);
+            if refs.is_empty() {
+                self.data.fetched_git_refs.remove(remote_name);
+            }
+        }
+    }
+
     /// Sets Git HEAD for the given workspace to point to the given target. If
     /// the target is absent, the entry will be removed.
     pub fn set_git_head_target(&mut self, workspace: &WorkspaceName, target: RefTarget) {
@@ -607,6 +682,7 @@ impl View {
             local_tags,
             remote_views,
             git_refs,
+            fetched_git_refs,
             git_heads,
             wc_commit_ids,
         } = &self.data;
@@ -620,6 +696,10 @@ impl View {
                     .flat_map(|remote_ref| ref_target_ids(&remote_ref.target))
             }),
             git_refs.values().flat_map(ref_target_ids),
+            fetched_git_refs
+                .values()
+                .flat_map(|refs| refs.values())
+                .flat_map(ref_target_ids),
             git_heads.values().flat_map(ref_target_ids),
             wc_commit_ids.values()
         )

@@ -97,6 +97,15 @@ pub struct GitHead {
     pub target: ::core::option::Option<RefTarget>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FetchedGitRef {
+    #[prost(string, tag = "1")]
+    pub remote_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub ref_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "3")]
+    pub target: ::core::option::Option<RefTarget>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteRef {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -150,6 +159,8 @@ pub struct View {
     /// Per-workspace Git HEAD targets, keyed by workspace name.
     #[prost(message, repeated, tag = "13")]
     pub git_heads: ::prost::alloc::vec::Vec<GitHead>,
+    #[prost(message, repeated, tag = "14")]
+    pub fetched_git_refs: ::prost::alloc::vec::Vec<FetchedGitRef>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteView {
