@@ -105,6 +105,15 @@ None
 
 ### New features
 
+* `jj git ref fetch` can fetch a raw Git ref, such as a forge pull-request ref,
+  from a configured remote. Fetched refs are durable, undoable Jujutsu state
+  and can be queried by name, revset, or template.
+
+* `jj git fetch` now supports `--depth` in existing repositories, with
+  `git.fetch-depth` as the default for subsequent fetches in shallow
+  repositories. `jj git ref fetch --shallow-exclude` can fetch a review stack
+  plus one parent generation for a usable diff base.
+
 * New `merge_point()` revset function which (similar to `fork_point`) finds the
   point where multiple branches merge.
 

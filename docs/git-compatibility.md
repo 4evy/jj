@@ -60,8 +60,9 @@ a comparison with Git, including how workflows are different, see the
   not be lost either.
 * **Partial clones: No.**
 * **Shallow clones: Kind of.** Shallow commits all have the virtual root commit
-  as their parent. However, deepening or fully unshallowing a repository is
-  currently not yet supported and will cause issues.
+  as their parent. `jj git fetch --depth <DEPTH>` can deepen a shallow
+  repository; `git.fetch-depth` supplies its default fetch depth. Changing the
+  shallow boundary with an external `git fetch` is not supported.
 * **git-worktree: No.** However, there's native support for multiple working
   copies backed by a single repo. See the `jj workspace` family of commands.
 * **Sparse checkouts: No.** However, there's native support for sparse
@@ -100,9 +101,22 @@ your choice by adding `--remote <remote name>` to the `jj git clone` command.
 ## Fetching and pushing refs that are not branches or tags
 
 Use `jj git ref fetch --remote <remote> <ref-or-commit-id>` to fetch one raw Git
-ref, such as a GitHub pull request ref, or one full Git commit ID. The fetched
-commit becomes visible without a name. The command does not create a bookmark
-or remote-tracking ref.
+ref, such as a GitHub pull request ref, or one full Git commit ID. Fetched refs
+are stored in Jujutsu's operation history without creating a Git
+remote-tracking branch, so they survive ordinary `jj git fetch` commands and
+can be undone or restored like other Jujutsu state.
+
+For example, after `jj git ref fetch --remote origin refs/pull/123/head`, the
+commit can be selected as `refs/pull/123/head@origin` or with
+`fetched_git_refs('refs/pull/123/head', remote='origin')`. Use `jj git ref list`
+and `jj git ref forget` to inspect and remove fetched refs.
+
+`jj git ref fetch --depth <depth>` limits the history fetched from each target.
+In an existing shallow repository, the `git.fetch-depth` setting supplies the
+default depth for both `jj git fetch` and `jj git ref fetch`.
+`--shallow-exclude <ref>` instead fetches the complete stack after the specified
+remote ref and one additional parent generation for use as the oldest commit's
+diff base.
 
 Use `jj git ref push` to push one revision to an application-specific ref such
 as Gerrit's `refs/for/main`. Unlike `jj git push`, this low-level command does
