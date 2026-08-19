@@ -30,6 +30,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back to prompting the user if the heuristics are inconclusive. It can also run
   in non-interactive mode, which aborts if prompting would be needed.
 
+* `jj git ref fetch` can fetch one raw Git ref or full commit ID from a
+  configured remote. The fetched commit becomes visible without creating a
+  bookmark or remote-tracking ref.
+
 ### Fixed bugs
 
 * The default pager flags now include `-K` (`--quit-on-intr`), so pressing

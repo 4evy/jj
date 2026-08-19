@@ -264,7 +264,7 @@ pub async fn cmd_git_fetch(
 
 const DEFAULT_REMOTE: &RemoteName = RemoteName::new("origin");
 
-fn get_default_fetch_remotes(
+pub(super) fn get_default_fetch_remotes(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
 ) -> Result<StringExpression, CommandError> {
