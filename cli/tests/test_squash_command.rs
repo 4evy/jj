@@ -2222,7 +2222,7 @@ fn test_squash_to_new_commit() -> TestResult {
     insta::assert_snapshot!(output, @"
     ○  nsrwusvy test.user@example.com 2001-02-03 08:05:42 c2183685
        (empty) (no description set)
-       -- operation f492acaa90e1 squash 0 commits
+       -- operation 24a7c71ef5ba squash 0 commits
     [EOF]
     ");
 
@@ -2266,7 +2266,7 @@ fn test_squash_to_new_commit() -> TestResult {
     insta::assert_snapshot!(output, @"
     ○  wtlqussy test.user@example.com 2001-02-03 08:05:46 7eff41c8
        (empty) (no description set)
-       -- operation 607e6cfefd17 squash commit 0d254956d33ed5bb11d93eb795c5e514aadc81b5 and 1 more
+       -- operation 6cb8854169a0 squash commit 0d254956d33ed5bb11d93eb795c5e514aadc81b5 and 1 more
     [EOF]
     ");
 
@@ -2313,10 +2313,10 @@ fn test_squash_to_new_commit() -> TestResult {
     insta::assert_snapshot!(output, @"
     ○  pyoswmwk test.user@example.com 2001-02-03 08:05:50 991d0644
     │  (empty) (no description set)
-    │  -- operation e7931f81c66a squash commit f5e47d019271a392eb7f92a6b2e9f8cf41d97049
+    │  -- operation d935c985fe47 squash commit f5e47d019271a392eb7f92a6b2e9f8cf41d97049
     ○  szrrkvty/0 test.user@example.com 2001-02-03 08:05:50 f5e47d01 (hidden)
        (empty) (no description set)
-       -- operation cffbaf4787d4 new empty commit
+       -- operation bdb364908afe new empty commit
     [EOF]
     ");
 

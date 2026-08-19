@@ -748,7 +748,7 @@ fn test_workspaces_conflicting_edits() {
     let output = secondary_dir.run_jj(["log"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: The working copy is stale (not updated since operation 149761aea7d1).
+    Error: The working copy is stale (not updated since operation abe918482248).
     Hint: Run `jj workspace update-stale` to update it.
     See https://docs.jj-vcs.dev/latest/working-copy/#stale-working-copy for more information.
     [EOF]
@@ -1131,7 +1131,7 @@ fn test_workspaces_current_op_discarded_by_other(automatic: bool) {
         Parent commit (@-): rzvqmyuk 891f0006 (empty) (no description set)
         [EOF]
         ------- stderr -------
-        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 0392b7d73383f694906abd6ffd55416c30d1775a9790553062784f5c4553c09746b388aa86fb7d27b113d1096f50845e28dc24b3de8b1a9d515cbde3b44eb346 of type operation not found
+        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 24a24e2b4f2a8b12832fbe4ac41a0ee5ce39d6081c48db5b3405f217a921bd73f3d2871d7a8af3fd8236b730f71a420bd528c983b0abd1c1ebee44a801b02a65 of type operation not found
         Created and checked out recovery commit 866928d1e0fd
         [EOF]
         ");
@@ -1149,7 +1149,7 @@ fn test_workspaces_current_op_discarded_by_other(automatic: bool) {
         let output = secondary_dir.run_jj(["workspace", "update-stale"]);
         insta::assert_snapshot!(output, @"
         ------- stderr -------
-        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 0392b7d73383f694906abd6ffd55416c30d1775a9790553062784f5c4553c09746b388aa86fb7d27b113d1096f50845e28dc24b3de8b1a9d515cbde3b44eb346 of type operation not found
+        Failed to read working copy's current operation; attempting recovery. Error message from read attempt: Object 24a24e2b4f2a8b12832fbe4ac41a0ee5ce39d6081c48db5b3405f217a921bd73f3d2871d7a8af3fd8236b730f71a420bd528c983b0abd1c1ebee44a801b02a65 of type operation not found
         Created and checked out recovery commit 866928d1e0fd
         [EOF]
         ");
@@ -1200,20 +1200,20 @@ fn test_workspaces_current_op_discarded_by_other(automatic: bool) {
         insta::assert_snapshot!(output, @"
         @  kmkuslsw test.user@example.com 2001-02-03 08:05:18 secondary@ 18851b39
         │  RECOVERY COMMIT FROM `jj workspace update-stale`
-        │  -- operation 91f539374e6a snapshot working copy
+        │  -- operation c5058e5a4518 snapshot working copy
         ○  kmkuslsw/1 test.user@example.com 2001-02-03 08:05:18 866928d1 (hidden)
            (empty) RECOVERY COMMIT FROM `jj workspace update-stale`
-           -- operation 2a845e0b4514 recovery commit
+           -- operation 36ce07643a91 recovery commit
         [EOF]
         ");
     } else {
         insta::assert_snapshot!(output, @"
         @  kmkuslsw test.user@example.com 2001-02-03 08:05:18 secondary@ 18851b39
         │  RECOVERY COMMIT FROM `jj workspace update-stale`
-        │  -- operation 2d387a4a6355 snapshot working copy
+        │  -- operation b75f7cb3bfe0 snapshot working copy
         ○  kmkuslsw/1 test.user@example.com 2001-02-03 08:05:18 866928d1 (hidden)
            (empty) RECOVERY COMMIT FROM `jj workspace update-stale`
-           -- operation 2a845e0b4514 recovery commit
+           -- operation 36ce07643a91 recovery commit
         [EOF]
         ");
     }
@@ -1946,13 +1946,13 @@ fn test_debug_snapshot() {
     work_dir.run_jj(["describe", "-m", "initial"]).success();
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  fd7a8fca455a test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
+    @  c7413c9846ef test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
     │  describe commit 006bd1130b84e90ab082adeabd7409270d5a86da
     │  args: jj describe -m initial
-    ○  d870c9898b59 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    ○  f977cfc13f89 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  snapshot working copy
     │  args: jj debug snapshot
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]

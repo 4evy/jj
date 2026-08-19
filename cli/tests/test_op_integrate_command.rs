@@ -79,16 +79,16 @@ fn test_integrate_sibling_operation() -> TestResult {
     ");
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @    f28c8b5750f5 test-username@host.example.com default@ 2001-02-03 04:05:11.000 +07:00 - 2001-02-03 04:05:11.000 +07:00
+    @    a910929ac14d test-username@host.example.com default@ 2001-02-03 04:05:11.000 +07:00 - 2001-02-03 04:05:11.000 +07:00
     ├─╮  reconcile divergent operations
-    │ │  args: jj op integrate 4bffc36765bd9b796cc8bd631a09e92c60b686ef98c316a9baa7164c4f6f9d0071871d5678b014fec33b920d1177776b748af2a6395fc28031f92ab75a1d31ec
-    ○ │  4bffc36765bd test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    │ │  args: jj op integrate b8078012956cf7e74ecba059e12759f5b3758be8bc6bca33e6ba43113821bc47310487d53d6c1c80eabe7ef9ff826fbee70d505095bf11e9d52026b3f581d6b9
+    ○ │  b8078012956c test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │ │  new empty commit
     │ │  args: jj new '-m=first'
-    │ ○  63a847e21093 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    │ ○  d506e4ccbbb8 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     ├─╯  new empty commit
     │    args: jj new '-m=second' --ignore-working-copy
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -148,19 +148,19 @@ fn test_integrate_rebase_descendants() -> TestResult {
     ");
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @    000180467209 test-username@host.example.com default@ 2001-02-03 04:05:12.000 +07:00 - 2001-02-03 04:05:12.000 +07:00
+    @    ba31ec3e0d1f test-username@host.example.com default@ 2001-02-03 04:05:12.000 +07:00 - 2001-02-03 04:05:12.000 +07:00
     ├─╮  reconcile divergent operations
-    │ │  args: jj op integrate ec162faff90142f42a8fe4e514c61c06c10756a11b3ee0d645500b6f4280225e20c0b21b18759c23c37f144c6643492f170b8b809ae5f932f5d73dcf651941d1
-    ○ │  ec162faff901 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    │ │  args: jj op integrate f8471fb8f5177388a0f3405c1d4532effdd5d9dab37f745ec28b108e8f1559d3676f581abf0e4d63359eb63ceb3ddd94c16a23b3cc8d2f65d38f1c2fec6d30ac
+    ○ │  f8471fb8f517 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     │ │  new empty commit
     │ │  args: jj new '-m=child 2'
-    │ ○  02d52b605abd test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
+    │ ○  02b635a19584 test-username@host.example.com default@ 2001-02-03 04:05:10.000 +07:00 - 2001-02-03 04:05:10.000 +07:00
     ├─╯  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │    args: jj describe '-m=parent' --ignore-working-copy
-    ○  10ad95d988d6 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    ○  141e62fd7187 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │  new empty commit
     │  args: jj new --no-edit '-m=child 1'
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -225,16 +225,16 @@ fn test_integrate_concurrent_operations() -> TestResult {
     ");
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @    ddbaedf9ee34 test-username@host.example.com default@ 2001-02-03 04:05:11.000 +07:00 - 2001-02-03 04:05:11.000 +07:00
+    @    4798a992b1ae test-username@host.example.com default@ 2001-02-03 04:05:11.000 +07:00 - 2001-02-03 04:05:11.000 +07:00
     ├─╮  reconcile divergent operations
-    │ │  args: jj op integrate 49428a30d110a365178cdca38a32661982fb260d18df5c19f2b76df283c9cd2fd367dce1b124a7a75cfe9487eeee3b5031bd1b2a851261a3fc3f1d9dba41d768
-    ○ │  49428a30d110 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
+    │ │  args: jj op integrate b2c4af5e19b0912f5e74c38e27948406f49a6ac2def9fbed93178697dea0c3d0759e9763982eb03881460b65b24e60ccc0466964ec809f758f7f454a02850079
+    ○ │  b2c4af5e19b0 test-username@host.example.com default@ 2001-02-03 04:05:08.000 +07:00 - 2001-02-03 04:05:08.000 +07:00
     │ │  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │ │  args: jj describe '-m=left'
-    │ ○  383be968e923 test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
+    │ ○  f8e4a3e9275d test-username@host.example.com default@ 2001-02-03 04:05:09.000 +07:00 - 2001-02-03 04:05:09.000 +07:00
     ├─╯  describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
     │    args: jj describe '-m=right' --ignore-working-copy
-    ○  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    ○  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]

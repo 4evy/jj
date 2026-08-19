@@ -105,9 +105,10 @@ None
 
 ### New features
 
-* `jj git ref fetch` can fetch a raw Git ref, such as a forge pull-request ref,
+* `jj git ref fetch` can fetch raw Git refs, ref patterns, and full commit IDs
   from a configured remote. Fetched refs are durable, undoable Jujutsu state
-  and can be queried by name, revset, or template.
+  and can be queried by name, revset, or template; commits fetched directly by
+  ID are imported anonymously.
 
 * `jj git fetch` now supports `--depth` in existing repositories, with
   `git.fetch-depth` as the default for subsequent fetches in shallow

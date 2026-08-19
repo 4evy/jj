@@ -100,16 +100,27 @@ your choice by adding `--remote <remote name>` to the `jj git clone` command.
 
 ## Fetching and pushing refs that are not branches or tags
 
-Use `jj git ref fetch --remote <remote> <ref-or-commit-id>` to fetch one raw Git
-ref, such as a GitHub pull request ref, or one full Git commit ID. Fetched refs
-are stored in Jujutsu's operation history without creating a Git
-remote-tracking branch, so they survive ordinary `jj git fetch` commands and
-can be undone or restored like other Jujutsu state.
+Use `jj git ref fetch --remote <remote> <ref>...` to fetch one or more raw Git
+refs such as GitHub pull-request refs. A ref may be fully qualified or omit its
+leading `refs/`; one `*` is allowed for batch fetching. Each fetched ref target
+is stored in Jujutsu's operation history without creating a Git
+remote-tracking branch, so it survives ordinary `jj git fetch` commands and can
+be undone or restored like other Jujutsu state.
+
+The Jujutsu view update is atomic: if an explicitly requested ref or pattern is
+missing, none of that invocation's fetched-ref labels are recorded. Git may
+still have downloaded unreferenced objects before reporting the missing target.
 
 For example, after `jj git ref fetch --remote origin refs/pull/123/head`, the
 commit can be selected as `refs/pull/123/head@origin` or with
 `fetched_git_refs('refs/pull/123/head', remote='origin')`. Use `jj git ref list`
 and `jj git ref forget` to inspect and remove fetched refs.
+
+Passing a full Git commit ID instead of a ref imports that commit anonymously
+without adding a fetched-ref label. This is useful for commits stored in a
+forge's shared object storage. Options that select a single working-copy or
+bookmark target (`--new`, `--edit`, and `--bookmark`) cannot be combined with
+multiple refs or a ref pattern.
 
 `jj git ref fetch --depth <depth>` limits the history fetched from each target.
 In an existing shallow repository, the `git.fetch-depth` setting supplies the

@@ -255,7 +255,7 @@ fn test_git_ref_fetch_invalid_source() {
         ]),
         @r"
     ------- stderr -------
-    Error: Invalid Git ref or commit ID: refs/pull/../head
+    Error: Invalid Git ref name: refs/pull/../head
     [EOF]
     [exit status: 1]
     "
@@ -394,6 +394,188 @@ fn test_git_ref_fetch_shallow_stack_with_parent() {
 }
 
 #[test]
+fn test_git_ref_fetch_shallow_pattern_with_parent() {
+    let test_env = TestEnvironment::default();
+    let root_dir = test_env.work_dir("");
+    let source_path = test_env.env_root().join("source");
+    let git_repo = git::init(source_path);
+    add_commit_to_branch(&git_repo, "main", "A");
+    let base_id = add_commit_to_branch(&git_repo, "main", "B");
+    git_repo
+        .reference(
+            "refs/heads/base",
+            base_id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "create base ref",
+        )
+        .unwrap();
+    for (number, message) in [("123", "C"), ("456", "D")] {
+        let ref_name = format!("refs/pull/{number}/head");
+        git_repo
+            .reference(
+                ref_name.as_str(),
+                base_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "create pull request ref",
+            )
+            .unwrap();
+        add_commit_to_ref(&git_repo, &ref_name, number, message);
+    }
+    testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
+
+    root_dir
+        .run_jj(["git", "clone", "--depth", "1", "source", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "fetch",
+            "--shallow-exclude=refs/heads/base",
+            "refs/pull/*/head",
+        ])
+        .success();
+
+    for (number, expected) in [("123", "C\nB\n"), ("456", "D\nB\n")] {
+        let revision = format!("::refs/pull/{number}/head@origin ~ root()");
+        let output = work_dir
+            .run_jj([
+                "log",
+                "--no-graph",
+                "-r",
+                &revision,
+                "-T",
+                "description.first_line() ++ '\n'",
+            ])
+            .success();
+        assert_eq!(output.stdout.raw(), expected);
+    }
+}
+
+#[test]
+fn test_git_ref_fetch_depth_and_config_default() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config("git.fetch-depth = 3");
+    let root_dir = test_env.work_dir("");
+    let source_path = test_env.env_root().join("source");
+    let git_repo = git::init(source_path);
+    add_commit_to_branch(&git_repo, "main", "main");
+    testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
+    for message in ["PR 123 A", "PR 123 B", "PR 123 C", "PR 123 D"] {
+        add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", message);
+    }
+    for message in ["PR 456 A", "PR 456 B", "PR 456 C", "PR 456 D"] {
+        add_commit_to_ref(&git_repo, "refs/pull/456/head", "pr456", message);
+    }
+
+    root_dir
+        .run_jj(["git", "clone", "--depth", "1", "source", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+
+    // An explicit depth limits the history imported for a raw ref.
+    work_dir
+        .run_jj(["git", "ref", "fetch", "--depth=2", "refs/pull/123/head"])
+        .success();
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "::refs/pull/123/head@origin ~ root()",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    PR 123 D
+    PR 123 C
+    [EOF]
+    "
+    );
+
+    // In an existing shallow repository, git.fetch-depth supplies the default.
+    work_dir
+        .run_jj(["git", "ref", "fetch", "refs/pull/456/head"])
+        .success();
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "::refs/pull/456/head@origin ~ root()",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    PR 456 D
+    PR 456 C
+    PR 456 B
+    [EOF]
+    "
+    );
+}
+
+#[test]
+fn test_git_ref_fetch_failure_refreshes_shallow_ancestry() {
+    let test_env = TestEnvironment::default();
+    let root_dir = test_env.work_dir("");
+    let source_path = test_env.env_root().join("source");
+    let git_repo = git::init(source_path);
+    for message in ["A", "B", "C", "D"] {
+        add_commit_to_branch(&git_repo, "main", message);
+    }
+    testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
+
+    root_dir
+        .run_jj(["git", "clone", "--depth", "1", "source", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+
+    // Git may deepen the backing repository before a later target makes the
+    // batch fail. The view update is discarded, but the changed Git boundary
+    // still requires the backend cache and commit index to be refreshed.
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "git",
+            "ref",
+            "fetch",
+            "--depth=3",
+            "refs/heads/main",
+            "refs/heads/missing",
+        ]),
+        @"
+    ------- stderr -------
+    Shallow boundary changed; the commit index will be rebuilt.
+    Error: Git remote 'origin' has no ref or commit ID matching 'refs/heads/missing'
+    [EOF]
+    [exit status: 1]
+    "
+    );
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @"
+    ------- stderr -------
+    No fetched Git refs.
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "::main@origin ~ root()",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    D
+    C
+    B
+    [EOF]
+    "
+    );
+}
+
+#[test]
 fn test_git_ref_fetch_default_remote_from_config_glob() {
     let test_env = TestEnvironment::default();
     test_env.add_config(r#"git.fetch = "rem*""#);
@@ -416,7 +598,7 @@ fn test_git_ref_fetch_default_remote_from_config_glob() {
 }
 
 #[test]
-fn test_git_ref_fetch_default_remote_from_config_list() {
+fn test_git_ref_fetch_default_remote_from_config_list_requires_selection() {
     let test_env = TestEnvironment::default();
     test_env.add_config(r#"git.fetch = ["upstream", "origin"]"#);
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
@@ -425,18 +607,41 @@ fn test_git_ref_fetch_default_remote_from_config_list() {
     let git_repo = add_git_remote(&test_env, &work_dir, "upstream");
     add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
 
-    // A list-valued git.fetch is still ordered configuration for this command:
-    // only the first entry supplies the default remote.
+    // Normal fetch can use every configured remote, but one raw-ref request
+    // needs an explicit remote when the configuration selects more than one.
     let output = work_dir.run_jj(["git", "ref", "fetch", "refs/pull/123/head"]);
     insta::assert_snapshot!(output, @r"
     ------- stderr -------
-    Fetched refs/pull/123/head as spovxuoz 84c6f409 pull request 123
+    Error: Default git fetch configuration matches multiple remotes
+    Hint: Use `--remote` to select one remote for `jj git ref fetch`.
     [EOF]
+    [exit status: 1]
     ");
     insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
-    upstream refs/pull/123/head 84c6f409c8199d0f3fd9b29fb5119c090da42d5e
+    ------- stderr -------
+    No fetched Git refs.
     [EOF]
     ");
+}
+
+#[test]
+fn test_git_ref_fetch_default_remote_from_empty_config() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config("git.fetch = []");
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
+
+    insta::assert_snapshot!(
+        work_dir.run_jj(["git", "ref", "fetch", "refs/pull/123/head"]),
+        @r"
+    ------- stderr -------
+    Error: No git remotes to fetch from
+    [EOF]
+    [exit status: 1]
+    "
+    );
 }
 
 #[test]
@@ -463,7 +668,7 @@ fn test_git_ref_fetch_non_commit_ref_deletes_temporary_ref() -> TestResult {
     ]);
     insta::assert_snapshot!(output, @r"
     ------- stderr -------
-    Error: Git ref 'refs/pull/123/head' on remote 'origin' does not point to a commit
+    Error: Ref or object ID 'refs/pull/123/head' on Git remote 'origin' does not resolve to a commit
     [EOF]
     [exit status: 1]
     ");
@@ -482,7 +687,7 @@ fn test_git_ref_fetch_non_commit_ref_deletes_temporary_ref() -> TestResult {
 }
 
 #[test]
-fn test_git_ref_fetch_wildcard_ref_rejected_before_fetch() -> TestResult {
+fn test_git_ref_fetch_wildcard_ref() -> TestResult {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
     let work_dir = test_env.work_dir("repo");
@@ -490,21 +695,17 @@ fn test_git_ref_fetch_wildcard_ref_rejected_before_fetch() -> TestResult {
     add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
     add_commit_to_ref(&git_repo, "refs/pull/456/head", "pr456", "pull request 456");
 
-    // A wildcard source would make Git create multiple refs/jj/fetch/... refs,
-    // while jj git ref fetch has only one fetched-ref label to record.
-    let output = work_dir.run_jj([
-        "git",
-        "ref",
-        "fetch",
-        "--remote",
-        "origin",
-        "refs/pull/*/head",
-    ]);
+    let output = work_dir.run_jj(["git", "ref", "fetch", "--remote", "origin", "pull/*/head"]);
     insta::assert_snapshot!(output, @r"
     ------- stderr -------
-    Error: Git ref patterns are not supported by this command: refs/pull/*/head
+    Fetched refs/pull/123/head as spovxuoz 84c6f409 pull request 123
+    Fetched refs/pull/456/head as mtrqwrwx 88d135c9 pull request 456
     [EOF]
-    [exit status: 1]
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
+    origin refs/pull/123/head 84c6f409c8199d0f3fd9b29fb5119c090da42d5e
+    origin refs/pull/456/head 88d135c9833e0e0020cfdb45a24604824c1c916b
+    [EOF]
     ");
 
     let git_root_output = work_dir.run_jj(["git", "root"]).success();
@@ -517,6 +718,112 @@ fn test_git_ref_fetch_wildcard_ref_rejected_before_fetch() -> TestResult {
         assert!(backing_git_repo.try_find_reference(ref_name)?.is_none());
     }
     Ok(())
+}
+
+#[test]
+fn test_git_ref_fetch_multiple_refs_atomically() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
+    add_commit_to_ref(&git_repo, "refs/pull/456/head", "pr456", "pull request 456");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "fetch",
+        "--remote=origin",
+        "refs/pull/456/head",
+        "pull/123/head",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Fetched refs/pull/123/head as spovxuoz 84c6f409 pull request 123
+    Fetched refs/pull/456/head as mtrqwrwx 88d135c9 pull request 456
+    [EOF]
+    ");
+
+    // If any explicitly requested ref is missing, none of the fetched-ref view
+    // entries from that command are committed.
+    insta::assert_snapshot!(
+        work_dir.run_jj(["git", "ref", "list", "--remote=origin", "pull/123/head"]),
+        @r"
+    origin refs/pull/123/head 84c6f409c8199d0f3fd9b29fb5119c090da42d5e
+    [EOF]
+    "
+    );
+    work_dir
+        .run_jj(["git", "ref", "forget", "--remote=origin", "pull/123/head"])
+        .success();
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "forget",
+            "--remote=origin",
+            "refs/pull/456/head",
+        ])
+        .success();
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "fetch",
+        "--remote=origin",
+        "refs/pull/123/head",
+        "refs/pull/999/head",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Error: Git remote 'origin' has no ref or commit ID matching 'refs/pull/999/head'
+    [EOF]
+    [exit status: 1]
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
+    ------- stderr -------
+    No fetched Git refs.
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_git_ref_fetch_commit_id_anonymously() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    let commit_id = add_commit_to_ref(
+        &git_repo,
+        "refs/private/backport",
+        "backport",
+        "backport candidate",
+    );
+    let commit_id_string = commit_id.to_string();
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "fetch",
+        "--remote=origin",
+        commit_id_string.as_str(),
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Fetched 5c3579c4ae161fa1e7f032aff628410711c125b1 as rmpvrwrr 5c3579c4 backport candidate
+    [EOF]
+    ");
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
+    ------- stderr -------
+    No fetched Git refs.
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        work_dir.run_jj(["log", "--no-graph", "-r", &commit_id_string, "-T", "description.first_line() ++ '\n'"]),
+        @r"
+    backport candidate
+    [EOF]
+    "
+    );
 }
 
 #[test]
@@ -539,6 +846,26 @@ fn test_git_ref_fetch_invalid_ref_rejected_before_fetch() {
     Error: Invalid Git ref name: refs/pull/../head
     [EOF]
     [exit status: 1]
+    ");
+}
+
+#[test]
+fn test_git_ref_fetch_requires_target() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    let output = work_dir.run_jj(["git", "ref", "fetch"]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    error: the following required arguments were not provided:
+      <REF>...
+
+    Usage: jj git ref fetch <REF>...
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
     ");
 }
 
@@ -606,7 +933,7 @@ fn test_git_ref_fetch_default_remote_from_config_glob_multiple_matches() {
     let output = work_dir.run_jj(["git", "ref", "fetch", "refs/pull/123/head"]);
     insta::assert_snapshot!(output, @r"
     ------- stderr -------
-    Error: `git.fetch` matches multiple remotes: rem1, rem2
+    Error: Default git fetch configuration matches multiple remotes
     Hint: Use `--remote` to select one remote for `jj git ref fetch`.
     [EOF]
     [exit status: 1]
@@ -784,7 +1111,7 @@ fn test_git_ref_fetch_pins_commits_during_normal_fetch() {
 }
 
 #[test]
-fn test_git_ref_fetch_bookmark_new_edit_and_forget() {
+fn test_git_ref_fetch_bookmark_new_and_forget() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
     let work_dir = test_env.work_dir("repo");
@@ -832,6 +1159,191 @@ fn test_git_ref_fetch_bookmark_new_edit_and_forget() {
 }
 
 #[test]
+fn test_git_ref_fetch_edit() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
+
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "fetch",
+            "--remote=origin",
+            "--edit",
+            "refs/pull/123/head",
+        ])
+        .success();
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "@ & refs/pull/123/head@origin",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    pull request 123
+    [EOF]
+    "
+    );
+}
+
+#[test]
+fn test_git_ref_fetch_edit_rejects_newly_imported_immutable_commit() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config(r#"revset-aliases."immutable_heads()" = "fetched_git_refs()""#);
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "fetch",
+        "--remote=origin",
+        "--edit",
+        "refs/pull/123/head",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        output.stderr.raw().contains("is immutable"),
+        "{}",
+        output.stderr.raw()
+    );
+    // The failed edit must not leave the fetched-ref label behind.
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
+    ------- stderr -------
+    No fetched Git refs.
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_git_ref_fetch_single_target_option_constraints() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    add_commit_to_ref(&git_repo, "refs/pull/123/head", "pr123", "pull request 123");
+    add_commit_to_ref(&git_repo, "refs/pull/456/head", "pr456", "pull request 456");
+
+    let assert_single_target_error = |args| {
+        let output = work_dir.run_jj(args);
+        assert_eq!(
+            output.stderr.raw(),
+            "Error: --new, --edit, and --bookmark require exactly one non-pattern fetch target\n"
+        );
+        assert_eq!(output.status.code(), Some(1));
+    };
+    assert_single_target_error(vec![
+        "git",
+        "ref",
+        "fetch",
+        "--new",
+        "refs/pull/123/head",
+        "refs/pull/456/head",
+    ]);
+    assert_single_target_error(vec!["git", "ref", "fetch", "--edit", "refs/pull/*/head"]);
+    assert_single_target_error(vec![
+        "git",
+        "ref",
+        "fetch",
+        "--bookmark=reviews",
+        "refs/pull/*/head",
+    ]);
+    insta::assert_snapshot!(work_dir.run_jj(["git", "ref", "list"]), @r"
+    ------- stderr -------
+    No fetched Git refs.
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_git_ref_fetch_option_conflicts() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    for (args, expected_error) in [
+        (
+            vec![
+                "git",
+                "ref",
+                "fetch",
+                "--new",
+                "--edit",
+                "refs/pull/123/head",
+            ],
+            "the argument '--new' cannot be used with '--edit'",
+        ),
+        (
+            vec!["git", "ref", "fetch", "--replace", "refs/pull/123/head"],
+            "the following required arguments were not provided:\n  --bookmark <NAME>",
+        ),
+        (
+            vec![
+                "git",
+                "ref",
+                "fetch",
+                "--depth=2",
+                "--shallow-exclude=refs/heads/main",
+                "refs/pull/123/head",
+            ],
+            "the argument '--depth <DEPTH>' cannot be used with '--shallow-exclude <REF>'",
+        ),
+    ] {
+        let output = work_dir.run_jj(args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            output.stderr.raw().contains(expected_error),
+            "{}",
+            output.stderr.raw()
+        );
+    }
+}
+
+#[test]
+fn test_git_ref_fetch_pattern_and_object_validation() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    add_git_remote(&test_env, &work_dir, "origin");
+
+    insta::assert_snapshot!(
+        work_dir.run_jj(["git", "ref", "fetch", "refs/pull/*/*"]),
+        @r"
+    ------- stderr -------
+    Error: Invalid Git ref pattern: refs/pull/*/*
+    [EOF]
+    [exit status: 1]
+    "
+    );
+    insta::assert_snapshot!(
+        work_dir.run_jj(["git", "ref", "fetch", "refs/pull/*/head"]),
+        @r"
+    ------- stderr -------
+    Error: Git remote 'origin' has no ref or commit ID matching 'refs/pull/*/head'
+    [EOF]
+    [exit status: 1]
+    "
+    );
+    insta::assert_snapshot!(
+        work_dir.run_jj(["git", "ref", "fetch", &"0".repeat(64)]),
+        @r"
+    ------- stderr -------
+    Error: Git object ID uses sha256, but this repository uses sha1
+    [EOF]
+    [exit status: 1]
+    "
+    );
+}
+
+#[test]
 fn test_git_ref_fetch_operation_diff() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
@@ -856,7 +1368,7 @@ fn test_git_ref_fetch_operation_diff() {
         .success();
     insta::assert_snapshot!(work_dir.run_jj(["op", "diff", "--from", "@-", "--to", "@"]), @"
     From operation: 83cb949b8aa2 (2001-02-03 08:05:08) add git remote origin
-      To operation: 16bd1f7a8e2f (2001-02-03 08:05:09) fetch ref refs/pull/123/head from git remote origin
+      To operation: 6699f9c47852 (2001-02-03 08:05:09) fetch refs or commit IDs refs/pull/123/head from git remote origin
 
     Changed commits:
     ○  + vrvtsttm b182bf31 pull request 123 v1
@@ -885,8 +1397,8 @@ fn test_git_ref_fetch_operation_diff() {
         ])
         .success();
     insta::assert_snapshot!(work_dir.run_jj(["op", "diff", "--from", "@-", "--to", "@"]), @r"
-    From operation: 252aad02ee20 (2001-02-03 08:05:09) fetch ref refs/pull/123/head from git remote origin
-      To operation: 126fe8d19df5 (2001-02-03 08:05:11) fetch ref refs/pull/123/head from git remote origin
+    From operation: 6699f9c47852 (2001-02-03 08:05:09) fetch refs or commit IDs refs/pull/123/head from git remote origin
+      To operation: b3df99e22b96 (2001-02-03 08:05:11) fetch refs or commit IDs refs/pull/123/head from git remote origin
 
     Changed commits:
     ○  + zttwxqyv 0b54cc6a pull request 123 v2
@@ -909,8 +1421,8 @@ fn test_git_ref_fetch_operation_diff() {
         ])
         .success();
     insta::assert_snapshot!(work_dir.run_jj(["op", "diff", "--from", "@-", "--to", "@"]), @r"
-    From operation: 126fe8d19df5 (2001-02-03 08:05:11) fetch ref refs/pull/123/head from git remote origin
-      To operation: 5437b9bba2ad (2001-02-03 08:05:13) forget fetched git ref refs/pull/123/head@origin
+    From operation: b3df99e22b96 (2001-02-03 08:05:11) fetch refs or commit IDs refs/pull/123/head from git remote origin
+      To operation: ec4973ba730e (2001-02-03 08:05:13) forget fetched git ref refs/pull/123/head@origin
 
     Changed fetched Git refs:
     refs/pull/123/head@origin:
@@ -2734,7 +3246,7 @@ fn test_fetch_undo_what() {
     ]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Restored to operation: f9f128e730c0 (2001-02-03 08:05:07) add git remote origin
+    Restored to operation: 2104a40bd9a0 (2001-02-03 08:05:07) add git remote origin
     [EOF]
     ");
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
@@ -3281,12 +3793,12 @@ fn test_git_fetch_remotely_rewritten() {
     insta::assert_snapshot!(output, @"
     ◆  kkmpptxz test.user@example.com 2001-02-03 08:05:14 book@origin 3ee37bc8
     │  (empty) bookmarked
-    │  -- operation bc9504529c2b fetch from git remote(s) origin
+    │  -- operation a833df244aca fetch from git remote(s) origin
     ○  kkmpptxz/1 test.user@example.com 2001-02-03 08:05:09 eedc2709 (hidden)
        (empty) bookmarked
     ◆  qpvuntsm test.user@example.com 2001-02-03 08:05:14 f30445f7
     │  (empty) modified
-    │  -- operation bc9504529c2b fetch from git remote(s) origin
+    │  -- operation a833df244aca fetch from git remote(s) origin
     ○  qpvuntsm/1 test.user@example.com 2001-02-03 08:05:08 97604bbe (hidden)
        (empty) original
     [EOF]

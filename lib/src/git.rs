@@ -3316,11 +3316,12 @@ impl<'a> GitFetch<'a> {
             };
 
             if let Some(excluded_source) = shallow_exclude {
-                let excluded_ref = gix::refs::PartialName::try_from(excluded_source).map_err(|_| {
-                    GitFetchError::InvalidSource {
-                        fetch_source: excluded_source.to_owned(),
-                    }
-                })?;
+                let excluded_ref =
+                    gix::refs::PartialName::try_from(excluded_source).map_err(|_| {
+                        GitFetchError::InvalidSource {
+                            fetch_source: excluded_source.to_owned(),
+                        }
+                    })?;
                 check_status(self.spawn_fetch_with_options(
                     remote_name,
                     std::slice::from_ref(&refspec),
@@ -3352,8 +3353,8 @@ impl<'a> GitFetch<'a> {
                 .git_repo
                 .find_reference(temporary_ref_name.as_str())
                 .map_err(|_| GitFetchError::NoSuchSource {
-                        remote: remote_name.to_owned(),
-                        fetch_source: source.to_owned(),
+                    remote: remote_name.to_owned(),
+                    fetch_source: source.to_owned(),
                 })?;
             let commit_id = resolve_git_ref_to_commit_id(&reference, None).ok_or_else(|| {
                 GitFetchError::NotACommit {
@@ -3366,6 +3367,129 @@ impl<'a> GitFetch<'a> {
         let cleanup_result = self.delete_temporary_fetch_ref(&temporary_ref_name);
         match (fetch_result, cleanup_result) {
             (Ok(commit_id), Ok(())) => Ok(commit_id),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(err),
+        }
+    }
+
+    /// Fetches all refs matching a fully-qualified ref pattern and resolves
+    /// their targets to commits.
+    #[tracing::instrument(skip(self, callback))]
+    pub fn fetch_ref_pattern(
+        &mut self,
+        remote_name: &RemoteName,
+        pattern: &str,
+        callback: &mut dyn GitSubprocessCallback,
+        depth: Option<NonZeroU32>,
+        shallow_exclude: Option<&str>,
+    ) -> Result<Vec<(GitRefNameBuf, CommitId)>, GitFetchError> {
+        validate_remote_name(remote_name)?;
+        if pattern.matches('*').count() != 1
+            || !pattern.starts_with("refs/")
+            || gix::refs::FullName::try_from(pattern.replace('*', "x").as_str()).is_err()
+        {
+            return Err(GitFetchError::InvalidSource {
+                fetch_source: pattern.to_owned(),
+            });
+        }
+        if try_find_active_remote_inner(&self.git_repo, remote_name).is_none() {
+            return Err(GitFetchError::NoSuchRemote(remote_name.to_owned()));
+        }
+
+        let random_bytes = rand::random::<[u8; 16]>();
+        let destination_prefix = format!(
+            "{TEMPORARY_FETCH_REF_NAMESPACE}{}/",
+            crate::hex_util::encode_hex(&random_bytes)
+        );
+        let destination_pattern = format!("{destination_prefix}{pattern}");
+        let refspec = RefSpec::forced(pattern, destination_pattern);
+        let no_negative_refspecs = [];
+        let fetch_result = (|| {
+            let check_status = |status| match status {
+                GitFetchStatus::Updates(updates) if updates.rejected.is_empty() => Ok(updates),
+                GitFetchStatus::Updates(updates) => {
+                    let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
+                    Err(GitFetchError::RejectedUpdates(names))
+                }
+                GitFetchStatus::NoRemoteRef(_) => Err(GitFetchError::NoSuchSource {
+                    remote: remote_name.to_owned(),
+                    fetch_source: pattern.to_owned(),
+                }),
+            };
+
+            let updates = if let Some(excluded_source) = shallow_exclude {
+                let excluded_ref =
+                    gix::refs::PartialName::try_from(excluded_source).map_err(|_| {
+                        GitFetchError::InvalidSource {
+                            fetch_source: excluded_source.to_owned(),
+                        }
+                    })?;
+                let updates = check_status(self.spawn_fetch_with_options(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    Shallow::Exclude {
+                        remote_refs: vec![excluded_ref],
+                        since_cutoff: None,
+                    },
+                )?)?;
+                check_status(self.spawn_fetch_with_options(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    Shallow::Deepen(1),
+                )?)?;
+                updates
+            } else {
+                check_status(self.spawn_fetch(
+                    remote_name,
+                    std::slice::from_ref(&refspec),
+                    &no_negative_refspecs,
+                    callback,
+                    depth,
+                )?)?
+            };
+
+            if updates.updated.is_empty() {
+                return Err(GitFetchError::NoSuchSource {
+                    remote: remote_name.to_owned(),
+                    fetch_source: pattern.to_owned(),
+                });
+            }
+            updates
+                .updated
+                .into_iter()
+                .map(|(destination_name, _)| {
+                    let source_name = destination_name
+                        .as_str()
+                        .strip_prefix(&destination_prefix)
+                        .expect("fetch destination should use the temporary prefix");
+                    let reference = self
+                        .git_repo
+                        .find_reference(destination_name.as_str())
+                        .map_err(|_| GitFetchError::NoSuchSource {
+                            remote: remote_name.to_owned(),
+                            fetch_source: source_name.to_owned(),
+                        })?;
+                    let commit_id =
+                        resolve_git_ref_to_commit_id(&reference, None).ok_or_else(|| {
+                            GitFetchError::NotACommit {
+                                remote: remote_name.to_owned(),
+                                fetch_source: source_name.to_owned(),
+                            }
+                        })?;
+                    Ok((
+                        GitRefNameBuf::from(source_name),
+                        CommitId::from_bytes(commit_id.as_bytes()),
+                    ))
+                })
+                .collect()
+        })();
+        let cleanup_result = self.delete_temporary_fetch_refs(&destination_prefix);
+        match (fetch_result, cleanup_result) {
+            (Ok(targets), Ok(())) => Ok(targets),
             (Err(err), _) => Err(err),
             (Ok(_), Err(err)) => Err(err),
         }
@@ -3387,6 +3511,34 @@ impl<'a> GitFetch<'a> {
                     source: Box::new(source),
                 })?;
         }
+        Ok(())
+    }
+
+    fn delete_temporary_fetch_refs(&self, prefix: &str) -> Result<(), GitFetchError> {
+        let references = self.git_repo.references().map_err(|err| {
+            GitSubprocessError::External(format!(
+                "failed to inspect temporary Git refs under {prefix}: {err}"
+            ))
+        })?;
+        let edits: Vec<_> = references
+            .prefixed(prefix)
+            .map_err(|err| {
+                GitSubprocessError::External(format!(
+                    "failed to inspect temporary Git refs under {prefix}: {err}"
+                ))
+            })?
+            .map_ok(remove_ref)
+            .try_collect()
+            .map_err(|err| {
+                GitSubprocessError::External(format!(
+                    "failed to inspect temporary Git refs under {prefix}: {err}"
+                ))
+            })?;
+        self.git_repo.edit_references(edits).map_err(|err| {
+            GitSubprocessError::External(format!(
+                "failed to delete temporary Git refs under {prefix}: {err}"
+            ))
+        })?;
         Ok(())
     }
 

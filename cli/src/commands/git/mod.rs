@@ -38,6 +38,7 @@ use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::ref_name::RemoteRefSymbol;
 use jj_lib::ref_name::RemoteRefSymbolBuf;
+use jj_lib::repo::Repo as _;
 use jj_lib::revset;
 use jj_lib::settings::UserSettings;
 use jj_lib::store::Store;
@@ -146,6 +147,29 @@ fn get_git_fetch_depth(
         Ok(requested_depth.or(settings.get("git.fetch-depth").optional()?))
     } else {
         Ok(None)
+    }
+}
+
+fn get_default_fetch_remote_patterns(
+    ui: &Ui,
+    workspace_command: &WorkspaceCommandHelper,
+) -> Result<Vec<String>, CommandError> {
+    let settings = workspace_command.settings();
+    if let Ok(remotes) = settings.get::<Vec<String>>("git.fetch") {
+        Ok(remotes)
+    } else if let Some(remote) = settings.get_string("git.fetch").optional()? {
+        Ok(vec![remote])
+    } else if let Some(remote) = get_single_remote(workspace_command.repo().store())? {
+        if remote != RemoteName::new("origin") {
+            writeln!(
+                ui.hint_default(),
+                "Fetching from the only existing remote: {remote}",
+                remote = remote.as_symbol()
+            )?;
+        }
+        Ok(vec![remote.into_string()])
+    } else {
+        Ok(vec!["origin".to_owned()])
     }
 }
 

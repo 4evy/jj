@@ -455,7 +455,6 @@ pub struct GitRefUpdates {
     ///
     /// `old_oid`/`new_oid` may be null or point to non-commit objects such as
     /// tags.
-    #[cfg_attr(not(test), expect(dead_code))] // unused as of now
     pub updated: Vec<(GitRefNameBuf, Diff<gix::ObjectId>)>,
     /// Git ref `(name, (old_oid, new_oid)`s that are rejected or failed to
     /// update.

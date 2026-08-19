@@ -4045,6 +4045,7 @@ fn test_fetch_commit_from_ref() -> TestResult {
         "refs/pull/123/head",
         &mut NullCallback,
         None,
+        None,
     )?;
     drop(fetcher);
 
@@ -4080,6 +4081,7 @@ fn test_fetch_commit_by_id() -> TestResult {
         &commit_id.to_string(),
         &mut NullCallback,
         None,
+        None,
     )?;
     drop(fetcher);
 
@@ -4104,7 +4106,13 @@ fn test_fetch_commit_cleans_up_non_commit_target() -> TestResult {
 
     let mut tx = test_data.repo.start_transaction();
     let mut fetcher = GitFetch::new(tx.repo_mut(), subprocess_options, &import_options)?;
-    let result = fetcher.fetch_commit("origin".as_ref(), "refs/meta/blob", &mut NullCallback, None);
+    let result = fetcher.fetch_commit(
+        "origin".as_ref(),
+        "refs/meta/blob",
+        &mut NullCallback,
+        None,
+        None,
+    );
 
     assert_matches!(result, Err(GitFetchError::NotACommit { .. }));
     assert!(
@@ -4130,6 +4138,7 @@ fn test_fetch_commit_rejects_invalid_source() -> TestResult {
         "origin".as_ref(),
         "refs/pull/../head",
         &mut NullCallback,
+        None,
         None,
     );
 

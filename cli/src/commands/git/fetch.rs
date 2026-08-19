@@ -17,7 +17,6 @@ use std::num::NonZeroU32;
 
 use clap_complete::ArgValueCandidates;
 use itertools::Itertools as _;
-use jj_lib::config::ConfigGetResultExt as _;
 use jj_lib::git;
 use jj_lib::git::GitFetch;
 use jj_lib::git::GitFetchRefExpression;
@@ -38,7 +37,6 @@ use crate::cli_util::WorkspaceCommandTransaction;
 use crate::command_error::CommandError;
 use crate::command_error::cli_error;
 use crate::command_error::user_error;
-use crate::commands::git::get_single_remote;
 use crate::complete;
 use crate::git_util::GitSubprocessUi;
 use crate::git_util::load_git_import_options;
@@ -287,31 +285,12 @@ pub async fn cmd_git_fetch(
     reinit_result
 }
 
-const DEFAULT_REMOTE: &RemoteName = RemoteName::new("origin");
-
 pub(super) fn get_default_fetch_remotes(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
 ) -> Result<StringExpression, CommandError> {
-    const KEY: &str = "git.fetch";
-    let settings = workspace_command.settings();
-    if let Ok(remotes) = settings.get::<Vec<String>>(KEY) {
-        parse_union_name_patterns(ui, &remotes)
-    } else if let Some(remote) = settings.get_string(KEY).optional()? {
-        parse_union_name_patterns(ui, [&remote])
-    } else if let Some(remote) = get_single_remote(workspace_command.repo().store())? {
-        // if nothing was explicitly configured, try to guess
-        if remote != DEFAULT_REMOTE {
-            writeln!(
-                ui.hint_default(),
-                "Fetching from the only existing remote: {remote}",
-                remote = remote.as_symbol()
-            )?;
-        }
-        Ok(StringExpression::exact(remote))
-    } else {
-        Ok(StringExpression::exact(DEFAULT_REMOTE))
-    }
+    let remote_patterns = super::get_default_fetch_remote_patterns(ui, workspace_command)?;
+    parse_union_name_patterns(ui, remote_patterns)
 }
 
 fn warn_if_branches_not_found(
