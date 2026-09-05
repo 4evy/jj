@@ -48,6 +48,7 @@ use crate::file_util::PathError;
 use crate::git_backend::GitBackend;
 use crate::git_subprocess::GitFetchStatus;
 pub use crate::git_subprocess::GitProgress;
+use crate::git_subprocess::GitRefUpdates;
 pub use crate::git_subprocess::GitSidebandLineTerminator;
 pub use crate::git_subprocess::GitSubprocessCallback;
 use crate::git_subprocess::GitSubprocessContext;
@@ -3517,23 +3518,78 @@ pub fn fetch_commits(
     callback: &mut dyn GitSubprocessCallback,
     depth: Option<NonZeroU32>,
 ) -> Result<Vec<CommitId>, GitFetchError> {
-    validate_remote_name(remote_name)?;
+    fetch_commits_with_options(
+        store,
+        subprocess_options,
+        remote_name,
+        sources,
+        callback,
+        depth,
+        None,
+    )
+    .0
+}
+
+/// Fetches commits with shallow-history controls.
+///
+/// The boolean reports whether the Git shallow boundary changed, including
+/// when the fetch itself failed.
+#[tracing::instrument(skip(store, subprocess_options, callback))]
+pub fn fetch_commits_with_options(
+    store: &Store,
+    subprocess_options: GitSubprocessOptions,
+    remote_name: &RemoteName,
+    sources: &[&str],
+    callback: &mut dyn GitSubprocessCallback,
+    depth: Option<NonZeroU32>,
+    shallow_exclude: Option<&str>,
+) -> (Result<Vec<CommitId>, GitFetchError>, bool) {
+    let result = validate_remote_name(remote_name).map_err(GitFetchError::from);
+    if let Err(err) = result {
+        return (Err(err), false);
+    }
     for &source in sources {
         // The source may be an object ID rather than a ref name. Full hexadecimal
         // object IDs are valid partial ref names too, so this validation accepts
         // both supported forms while rejecting malformed fetch input.
         if gix::validate::reference::name_partial(BStr::new(source)).is_err() {
-            return Err(GitFetchError::InvalidSource {
-                fetch_source: source.to_owned(),
-            });
+            return (
+                Err(GitFetchError::InvalidSource {
+                    fetch_source: source.to_owned(),
+                }),
+                false,
+            );
         }
     }
+    let shallow_exclude = match shallow_exclude {
+        Some(source) => match gix::refs::PartialName::try_from(source) {
+            Ok(source) => Some(source),
+            Err(_) => {
+                return (
+                    Err(GitFetchError::InvalidSource {
+                        fetch_source: source.to_owned(),
+                    }),
+                    false,
+                );
+            }
+        },
+        None => None,
+    };
 
-    let git_backend = get_git_backend(store)?;
+    let git_backend = match get_git_backend(store) {
+        Ok(backend) => backend,
+        Err(err) => return (Err(err.into()), false),
+    };
     let mut git_repo = git_backend.git_repo();
-    let mut shallow_commits = read_shallow_commits(&git_repo)?;
+    let mut shallow_commits = match read_shallow_commits(&git_repo) {
+        Ok(commits) => commits,
+        Err(err) => return (Err(err), false),
+    };
     if try_find_active_remote_inner(&git_repo, remote_name).is_none() {
-        return Err(GitFetchError::NoSuchRemote(remote_name.to_owned()));
+        return (
+            Err(GitFetchError::NoSuchRemote(remote_name.to_owned())),
+            false,
+        );
     }
     let git_ctx = GitSubprocessContext::from_git_backend(git_backend, subprocess_options);
 
@@ -3556,17 +3612,22 @@ pub fn fetch_commits(
         .map(|(&source, temporary_ref_name)| RefSpec::forced(source, temporary_ref_name.as_str()))
         .collect_vec();
     let no_negative_refspecs = [];
+    let mut shallow_boundary_changed = false;
     let fetch_result = (|| {
-        let fetch_status = git_ctx.spawn_fetch_with_options(
-            remote_name,
-            &refspecs,
-            &no_negative_refspecs,
-            callback,
-            depth.map_or(Shallow::NoChange, Shallow::DepthAtRemote),
-        );
-        refresh_git_shallow_state(store, &mut git_repo, &mut shallow_commits)?;
-        let updates = match fetch_status? {
-            GitFetchStatus::Updates(updates) => updates,
+        let mut spawn_fetch = |shallow| {
+            let fetch_status = git_ctx.spawn_fetch_with_options(
+                remote_name,
+                &refspecs,
+                &no_negative_refspecs,
+                callback,
+                shallow,
+            );
+            shallow_boundary_changed |=
+                refresh_git_shallow_state(store, &mut git_repo, &mut shallow_commits)?;
+            fetch_status.map_err(GitFetchError::from)
+        };
+        let check_status = |status| match status {
+            GitFetchStatus::Updates(updates) => Ok(updates),
             GitFetchStatus::NoRemoteRef(fetch_source) => {
                 return Err(GitFetchError::NoSuchSource {
                     remote: remote_name.to_owned(),
@@ -3574,9 +3635,27 @@ pub fn fetch_commits(
                 });
             }
         };
-        if !updates.rejected.is_empty() {
-            let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
-            return Err(GitFetchError::RejectedUpdates(names));
+        let check_updates = |updates: GitRefUpdates| {
+            if updates.rejected.is_empty() {
+                Ok(())
+            } else {
+                let names = updates.rejected.into_iter().map(|(name, _)| name).collect();
+                Err(GitFetchError::RejectedUpdates(names))
+            }
+        };
+        if let Some(excluded_source) = shallow_exclude {
+            let updates = check_status(spawn_fetch(Shallow::Exclude {
+                remote_refs: vec![excluded_source],
+                since_cutoff: None,
+            })?)?;
+            check_updates(updates)?;
+            let updates = check_status(spawn_fetch(Shallow::Deepen(1))?)?;
+            check_updates(updates)?;
+        } else {
+            let updates = check_status(spawn_fetch(
+                depth.map_or(Shallow::NoChange, Shallow::DepthAtRemote),
+            )?)?;
+            check_updates(updates)?;
         }
 
         sources
@@ -3603,11 +3682,12 @@ pub fn fetch_commits(
     let cleanup_result = temporary_ref_names
         .iter()
         .try_for_each(|ref_name| delete_temporary_fetch_ref(&git_repo, ref_name));
-    match (fetch_result, cleanup_result) {
+    let result = match (fetch_result, cleanup_result) {
         (Ok(commit_ids), Ok(())) => Ok(commit_ids),
         (Err(err), _) => Err(err),
         (Ok(_), Err(err)) => Err(err),
-    }
+    };
+    (result, shallow_boundary_changed)
 }
 
 fn delete_temporary_fetch_ref(

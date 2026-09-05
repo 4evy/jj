@@ -338,6 +338,98 @@ fn test_git_ref_fetch_pull_request_ref() {
 }
 
 #[test]
+fn test_git_ref_fetch_shallow_stack_with_parent() {
+    let test_env = TestEnvironment::default();
+    let root_dir = test_env.work_dir("");
+    let source_path = test_env.env_root().join("source");
+    let git_repo = git::init(source_path);
+    add_commit_to_branch(&git_repo, "main", "A");
+    let base_id = add_commit_to_branch(&git_repo, "main", "B");
+    git_repo
+        .reference(
+            "refs/heads/base",
+            base_id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "create base ref",
+        )
+        .unwrap();
+    for branch in ["left", "right"] {
+        git_repo
+            .reference(
+                format!("refs/heads/{branch}"),
+                base_id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                "create side branch",
+            )
+            .unwrap();
+    }
+    let left_id = add_commit_to_branch(&git_repo, "left", "C");
+    let right_id = add_commit_to_branch(&git_repo, "right", "D");
+    git_repo
+        .reference(
+            "refs/heads/main",
+            left_id,
+            gix::refs::transaction::PreviousValue::Any,
+            "advance main to first merge parent",
+        )
+        .unwrap();
+    let tip_id = git::add_commit(
+        &git_repo,
+        "refs/heads/main",
+        "merge",
+        b"E",
+        "E",
+        &[left_id, right_id],
+    )
+    .commit_id;
+    git_repo
+        .reference(
+            "refs/pull/123/head",
+            tip_id,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            "create pull request ref",
+        )
+        .unwrap();
+    testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
+
+    root_dir
+        .run_jj(["git", "clone", "--depth", "1", "source", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "fetch",
+        "--shallow-exclude",
+        "refs/heads/base",
+        "refs/pull/123/head",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Fetched refs/pull/123/head as qzozlonv 5106b2d7 main | E
+    Shallow boundary changed; the commit index will be rebuilt.
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "::refs/pull/123/head@origin ~ root()",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    E
+    C
+    D
+    B
+    [EOF]
+    "
+    );
+}
+
+#[test]
 fn test_git_ref_fetch_default_remote_from_config_glob() {
     let test_env = TestEnvironment::default();
     test_env.add_config(r#"git.fetch = "rem*""#);

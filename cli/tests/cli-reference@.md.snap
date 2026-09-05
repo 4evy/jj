@@ -1931,6 +1931,12 @@ If a working-copy commit gets abandoned, it will be given a new, empty commit. T
 * `--edit` — Edit the fetched commit directly
 * `--bookmark <NAME>` — Set a local bookmark to the fetched commit
 * `--replace` — Allow --bookmark to move an existing local bookmark
+* `--depth <DEPTH>` — Limit fetching to the specified number of commits from each target
+
+   In an existing shallow repository, this defaults to the `git.fetch-depth` setting when configured.
+* `--shallow-exclude <REF>` — Fetch the complete stack after this ref, plus one parent generation
+
+   This is only supported in an existing shallow repository.
 
 
 
