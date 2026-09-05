@@ -29,7 +29,7 @@ fn test_integrate_integrated_operation() {
     insta::assert_snapshot!(output, @"");
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
-    @  f63ee16f9553 test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
+    @  3366dbbb81ac test-username@host.example.com 2001-02-03 04:05:07.000 +07:00 - 2001-02-03 04:05:07.000 +07:00
     │  add workspace 'default'
     ○  000000000000 root()
     [EOF]
@@ -64,8 +64,8 @@ fn test_integrate_sibling_operation() -> TestResult {
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Internal error: The repo was loaded at operation 63a847e21093, which seems to be a sibling of the working copy's operation 4bffc36765bd
-    Hint: Run `jj op integrate 4bffc36765bd` to add the working copy's operation to the operation log.
+    Internal error: The repo was loaded at operation d506e4ccbbb8, which seems to be a sibling of the working copy's operation b8078012956c
+    Hint: Run `jj op integrate b8078012956c` to add the working copy's operation to the operation log.
     [EOF]
     [exit status: 255]
     ");
@@ -132,8 +132,8 @@ fn test_integrate_rebase_descendants() -> TestResult {
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Internal error: The repo was loaded at operation 02d52b605abd, which seems to be a sibling of the working copy's operation ec162faff901
-    Hint: Run `jj op integrate ec162faff901` to add the working copy's operation to the operation log.
+    Internal error: The repo was loaded at operation 02b635a19584, which seems to be a sibling of the working copy's operation f8471fb8f517
+    Hint: Run `jj op integrate f8471fb8f517` to add the working copy's operation to the operation log.
     [EOF]
     [exit status: 255]
     ");
@@ -210,8 +210,8 @@ fn test_integrate_concurrent_operations() -> TestResult {
     let output = work_dir.run_jj(["op", "log"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Internal error: The repo was loaded at operation 383be968e923, which seems to be a sibling of the working copy's operation 49428a30d110
-    Hint: Run `jj op integrate 49428a30d110` to add the working copy's operation to the operation log.
+    Internal error: The repo was loaded at operation f8e4a3e9275d, which seems to be a sibling of the working copy's operation b2c4af5e19b0
+    Hint: Run `jj op integrate b2c4af5e19b0` to add the working copy's operation to the operation log.
     [EOF]
     [exit status: 255]
     ");

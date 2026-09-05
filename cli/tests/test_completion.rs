@@ -1311,16 +1311,16 @@ fn test_operations() {
 
     let output = work_dir.complete_fish(["op", "show", ""]).success();
     insta::assert_snapshot!(output.take_stdout_n_lines(num_ops + 2), @"
-    c5fcd0d80cb7	(2001-02-03 08:05:16) describe commit e0e6c0a964c024a49605805925672044dfae4181
-    5bdb507f19ba	(2001-02-03 08:05:15) describe commit 37df8a6c1874ff45621dee0f2b7a77169b65d257
-    8a4a92e5ecff	(2001-02-03 08:05:14) describe commit c3588cff852e44b68297f51705d6e61888806ddd
-    aac41ddc75bf	(2001-02-03 08:05:13) describe commit aa0b3230e3787076f232a08c8b1c7f54948a2d7a
-    c915cd6b4c8d	(2001-02-03 08:05:12) describe commit 96157804fd41363cb2ff8ff957ff1df1a2a1109a
-    26d5ef64718f	(2001-02-03 08:05:11) describe commit 3725536d0ae06d69e46911258cee591dbdb66478
-    1c97a622e394	(2001-02-03 08:05:10) describe commit dd7390802e3ca4467ffa43f2e0c0374463d056f3
-    3ff36c586388	(2001-02-03 08:05:09) describe commit 3ae22e7f50a15d393e412cca72d09a61165d0c84
-    7749eb4df93f	(2001-02-03 08:05:08) describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
-    f63ee16f9553	(2001-02-03 08:05:07) add workspace 'default'
+    d79c5285c8d3	(2001-02-03 08:05:16) describe commit e0e6c0a964c024a49605805925672044dfae4181
+    8bc4942969f9	(2001-02-03 08:05:15) describe commit 37df8a6c1874ff45621dee0f2b7a77169b65d257
+    e6731ae9b87a	(2001-02-03 08:05:14) describe commit c3588cff852e44b68297f51705d6e61888806ddd
+    3854268f527e	(2001-02-03 08:05:13) describe commit aa0b3230e3787076f232a08c8b1c7f54948a2d7a
+    0693cbd161de	(2001-02-03 08:05:12) describe commit 96157804fd41363cb2ff8ff957ff1df1a2a1109a
+    1b442f0c7f5d	(2001-02-03 08:05:11) describe commit 3725536d0ae06d69e46911258cee591dbdb66478
+    9e8ca6d53177	(2001-02-03 08:05:10) describe commit dd7390802e3ca4467ffa43f2e0c0374463d056f3
+    134e6ee1c484	(2001-02-03 08:05:09) describe commit 3ae22e7f50a15d393e412cca72d09a61165d0c84
+    a7015501c48f	(2001-02-03 08:05:08) describe commit e8849ae12c709f2321908879bc724fdb2ab8a781
+    3366dbbb81ac	(2001-02-03 08:05:07) add workspace 'default'
     000000000000	(1970-01-01 11:00:00)
     [EOF]
     ");

@@ -323,7 +323,7 @@ fn test_chmod_exec_bit_settings() -> TestResult {
 
     let output = work_dir.run_jj(["debug", "local-working-copy"]);
     insta::assert_snapshot!(output.normalize_stdout_with(redact_timestamp), @r#"
-    Current operation: OperationId("1e4ba9c8f03df16a2771f856a721cf86d3cc39db7be7f39e2bf1684925d22ce74ea1b18a0a6a3441a2e7e6e395cd3a58967cc8cfe98e6613996c822ed1073cd0")
+    Current operation: OperationId("022d791c35651dbb5f6e8c6a03266a8dff76c9d72a5168505e0f85a46c1e45151f06d8619e65b3a8116546b0d7b9b17c64a77ad73c5288340a65dd492604bfa6")
     Current tree: MergedTree { tree_ids: Resolved(TreeId("6d5f482d15035cdd7733b1b551d1fead28d22592")), labels: Unlabeled, .. }
     Normal { exec_bit: ExecBit(false) }             5 <timestamp> None "file"
     [EOF]

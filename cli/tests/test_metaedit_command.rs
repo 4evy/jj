@@ -641,13 +641,13 @@ fn test_new_change_id() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r", "yqosqzytrlswkspswpqrmlplxylrzsnz"]), @"
     ○  yqosqzyt test.user@example.com 2001-02-03 08:05:13 b 01d6741e
     │  (no description set)
-    │  -- operation ae935f447fc3 edit commit metadata for commit 75591b1896b4990e7695701fd7cdbb32dba3ff50
+    │  -- operation 65a7f2ae343f edit commit metadata for commit 75591b1896b4990e7695701fd7cdbb32dba3ff50
     ○  kkmpptxz/0 test.user@example.com 2001-02-03 08:05:11 75591b18 (hidden)
     │  (no description set)
-    │  -- operation 40edb1af22f3 snapshot working copy
+    │  -- operation cf06be58524b snapshot working copy
     ○  kkmpptxz/1 test.user@example.com 2001-02-03 08:05:09 acebf2bd (hidden)
        (empty) (no description set)
-       -- operation 9cda02fa4d24 new empty commit
+       -- operation 7b1b7df6696c new empty commit
     [EOF]
     ");
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r", "mzvwut"]), @"

@@ -890,9 +890,9 @@ fn test_git_ref_fetch_operation_diff() {
             "refs/pull/123/head",
         ])
         .success();
-    insta::assert_snapshot!(work_dir.run_jj(["op", "diff", "--from", "@-", "--to", "@"]), @r"
-    From operation: 14e9a7ba5044 (2001-02-03 08:05:08) add git remote origin
-      To operation: 252aad02ee20 (2001-02-03 08:05:09) fetch ref refs/pull/123/head from git remote origin
+    insta::assert_snapshot!(work_dir.run_jj(["op", "diff", "--from", "@-", "--to", "@"]), @"
+    From operation: 83cb949b8aa2 (2001-02-03 08:05:08) add git remote origin
+      To operation: 16bd1f7a8e2f (2001-02-03 08:05:09) fetch ref refs/pull/123/head from git remote origin
 
     Changed commits:
     ○  + vrvtsttm b182bf31 pull request 123 v1
@@ -2647,8 +2647,8 @@ fn test_git_fetch_undo() {
     let output = target_dir.run_jj(["undo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Undid operation: 450e0713ac6d (2001-02-03 08:05:20) fetch from git remote(s) origin
-    Restored to operation: f9f128e730c0 (2001-02-03 08:05:07) add git remote origin
+    Undid operation: 523ad534b8db (2001-02-03 08:05:20) fetch from git remote(s) origin
+    Restored to operation: 2104a40bd9a0 (2001-02-03 08:05:07) add git remote origin
     [EOF]
     ");
     // The undo works as expected
@@ -2738,7 +2738,7 @@ fn test_fetch_undo_what() {
     let output = work_dir.run_jj(["op", "restore", "--what", "repo", &base_operation_id]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Restored to operation: f9f128e730c0 (2001-02-03 08:05:07) add git remote origin
+    Restored to operation: 2104a40bd9a0 (2001-02-03 08:05:07) add git remote origin
     [EOF]
     ");
     insta::assert_snapshot!(get_bookmark_output(&work_dir), @"
@@ -3278,12 +3278,12 @@ fn test_git_fetch_remotely_rewritten() {
     insta::assert_snapshot!(output, @"
     ◆  kkmpptxz test.user@example.com 2001-02-03 08:05:14 book@origin 3ee37bc8
     │  (empty) bookmarked
-    │  -- operation bc9504529c2b fetch from git remote(s) origin
+    │  -- operation a833df244aca fetch from git remote(s) origin
     ○  kkmpptxz/1 test.user@example.com 2001-02-03 08:05:09 eedc2709 (hidden)
        (empty) bookmarked
     ◆  qpvuntsm test.user@example.com 2001-02-03 08:05:14 f30445f7
     │  (empty) modified
-    │  -- operation bc9504529c2b fetch from git remote(s) origin
+    │  -- operation a833df244aca fetch from git remote(s) origin
     ○  qpvuntsm/1 test.user@example.com 2001-02-03 08:05:08 97604bbe (hidden)
        (empty) original
     [EOF]
@@ -3490,17 +3490,17 @@ fn test_git_fetch_remotely_rewritten_descendants() {
     insta::assert_snapshot!(output, @"
     ◆  mzvwutvl test.user@example.com 2001-02-03 08:05:16 book2@origin 3faff772
     │  (empty) bookmarked 2
-    │  -- operation c59a4ba1a1a9 fetch from git remote(s) origin
+    │  -- operation 8eedd689d8c5 fetch from git remote(s) origin
     ○  mzvwutvl/1 test.user@example.com 2001-02-03 08:05:11 cce448c2 (hidden)
        (empty) bookmarked 2
     ◆  kkmpptxz test.user@example.com 2001-02-03 08:05:16 book1@origin ad5c5f3c
     │  (empty) bookmarked 1
-    │  -- operation 2cce05945865 fetch from git remote(s) origin
+    │  -- operation 26e7f5578508 fetch from git remote(s) origin
     ○  kkmpptxz/1 test.user@example.com 2001-02-03 08:05:09 2a6bbeb4 (hidden)
        (empty) bookmarked 1
     ◆  qpvuntsm test.user@example.com 2001-02-03 08:05:16 a843bfad
     │  (empty) modified
-    │  -- operation 2cce05945865 fetch from git remote(s) origin
+    │  -- operation 26e7f5578508 fetch from git remote(s) origin
     ○  qpvuntsm/1 test.user@example.com 2001-02-03 08:05:08 97604bbe (hidden)
        (empty) original
     [EOF]

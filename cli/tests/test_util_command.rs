@@ -114,8 +114,8 @@ fn test_gc_operation_log() {
     ------- stderr -------
     Internal error: Failed to load an operation
     Caused by:
-    1: Object 2bf28acab8bf15817f17f696d4483584440e13d155280691c7dd5abfa2e7e9b67258f06022cfdd5b86295cbfcfd42e9132740b8d3a75d18c2b0718b45f69d8d9 of type operation not found
-    2: Cannot access $TEST_ENV/repo/.jj/repo/op_store/operations/2bf28acab8bf15817f17f696d4483584440e13d155280691c7dd5abfa2e7e9b67258f06022cfdd5b86295cbfcfd42e9132740b8d3a75d18c2b0718b45f69d8d9
+    1: Object 88f9c2eb2ae6e80f25e200e9d315ad91f04c6b160534607c6390aafaa239b935498abdff26cab2f2e8582921a2825d9f99ade77e8b90028bae753441ee8c172f of type operation not found
+    2: Cannot access $TEST_ENV/repo/.jj/repo/op_store/operations/88f9c2eb2ae6e80f25e200e9d315ad91f04c6b160534607c6390aafaa239b935498abdff26cab2f2e8582921a2825d9f99ade77e8b90028bae753441ee8c172f
     [EOF]
     [exit status: 255]
     ");

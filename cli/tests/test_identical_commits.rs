@@ -92,10 +92,10 @@ fn test_identical_commits_by_cycling_rewrite() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog"]), @"
     @  oxmtprsl test.user@example.com 2001-01-01 11:00:00 c5abd225
     │  (empty) test2
-    │  -- operation 0b504315f7ba describe commit 053222c21fa06b9492e22346f8f70e732231ad4f
+    │  -- operation 4dcc33cf9ff5 describe commit 053222c21fa06b9492e22346f8f70e732231ad4f
     ○  oxmtprsl/1 test.user@example.com 2001-01-01 11:00:00 053222c2 (hidden)
        (empty) test1
-       -- operation 166b2bc3dc53 new empty commit
+       -- operation c9effb9ca4f7 new empty commit
     [EOF]
     ");
     // TODO: Test `jj op diff --from @--`
@@ -127,7 +127,7 @@ fn test_identical_commits_by_convergent_rewrite() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog"]), @"
     @  oxmtprsl/1 test.user@example.com 2001-01-01 11:00:00 c5abd225 (divergent)
        (empty) test2
-       -- operation 4249d34636d2 new empty commit
+       -- operation 8b6321f6a1bd new empty commit
     [EOF]
     ");
 }
@@ -163,7 +163,7 @@ fn test_identical_commits_by_convergent_rewrite_one_operation() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog"]), @"
     @  oxmtprsl/0 test.user@example.com 2001-01-01 11:00:00 c5abd225 (divergent)
        (empty) test2
-       -- operation 4249d34636d2 new empty commit
+       -- operation 8b6321f6a1bd new empty commit
     [EOF]
     ");
 }
@@ -204,7 +204,7 @@ fn test_identical_commits_swap_by_reordering() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r=@"]), @"
     @  oxmtprsl/0 test.user@example.com 2001-01-01 11:00:00 5bae90c9 (divergent)
        (empty) test
-       -- operation af5cee55f7e1 new empty commit
+       -- operation 71474583b31b new empty commit
     [EOF]
     ");
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r=@-"]), @"
