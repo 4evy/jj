@@ -3671,6 +3671,51 @@ fn test_git_fetch_tracked_multiple_remotes() {
 }
 
 #[test]
+fn test_git_fetch_depth_refreshes_ancestry_and_index() {
+    let test_env = TestEnvironment::default();
+    test_env.add_config("git.fetch-depth = 4");
+    let root_dir = test_env.work_dir("");
+    let source_path = test_env.env_root().join("source");
+    let git_repo = git::init(source_path);
+    for message in ["A", "B", "C", "D", "E"] {
+        add_commit_to_branch(&git_repo, "main", message);
+    }
+    testutils::git::set_symbolic_reference(&git_repo, "HEAD", "refs/heads/main");
+
+    root_dir
+        .run_jj(["git", "clone", "--depth", "1", "source", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+    add_commit_to_branch(&git_repo, "main", "F");
+    add_commit_to_branch(&git_repo, "main", "G");
+
+    let output = work_dir.run_jj(["git", "fetch"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    bookmark: main@origin [updated] tracked
+    Shallow boundary changed; the commit index will be rebuilt.
+    [EOF]
+    ");
+    insta::assert_snapshot!(
+        work_dir.run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "::main@origin ~ root()",
+            "-T",
+            "description.first_line() ++ '\n'",
+        ]),
+        @"
+    G
+    F
+    E
+    D
+    [EOF]
+    "
+    );
+}
+
+#[test]
 fn test_git_fetch_auto_track_bookmarks() {
     let test_env = TestEnvironment::default();
     let root_dir = test_env.work_dir("");

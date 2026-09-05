@@ -1824,6 +1824,9 @@ If a working-copy commit gets abandoned, it will be given a new, empty commit. T
 
    [string pattern syntax]: https://docs.jj-vcs.dev/latest/revsets/#string-patterns
 * `--all-remotes` — Fetch from all remotes
+* `--depth <DEPTH>` — Limit fetching to the specified number of commits from each tip
+
+   In an existing shallow repository, this defaults to the `git.fetch-depth` setting when configured.
 
 
 
