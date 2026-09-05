@@ -2043,6 +2043,15 @@ to the current parents may contain changes from multiple commits.
         to_rewrite_expr: &Arc<ResolvedRevsetExpression>,
     ) -> Result<(), CommandError> {
         let repo = self.repo().as_ref();
+        self.check_rewritable_expr_in_repo(repo, to_rewrite_expr)
+            .await
+    }
+
+    async fn check_rewritable_expr_in_repo(
+        &self,
+        repo: &dyn Repo,
+        to_rewrite_expr: &Arc<ResolvedRevsetExpression>,
+    ) -> Result<(), CommandError> {
         let immutable_expr = self.env.resolve_immutable_expression(repo)?;
         let Some(commit_id) = immutable_expr
             .intersection(to_rewrite_expr)
@@ -2787,6 +2796,18 @@ impl WorkspaceCommandTransaction<'_> {
     pub fn repo_mut(&mut self) -> &mut MutableRepo {
         self.id_prefix_context.take(); // invalidate
         self.tx.repo_mut()
+    }
+
+    /// Checks that commits in the current transaction state can be rewritten.
+    pub async fn check_rewritable<'a>(
+        &self,
+        commits: impl IntoIterator<Item = &'a CommitId>,
+    ) -> Result<(), CommandError> {
+        let commit_ids = commits.into_iter().cloned().collect_vec();
+        let to_rewrite_expr = RevsetExpression::commits(commit_ids);
+        self.helper
+            .check_rewritable_expr_in_repo(self.repo(), &to_rewrite_expr)
+            .await
     }
 
     pub fn check_out(&mut self, commit: &Commit) -> Result<Commit, CheckOutCommitError> {

@@ -1107,7 +1107,7 @@ fn test_git_colocated_external_checkout() -> TestResult {
     [EOF]
     ------- stderr -------
     Reset the working copy parent to the new Git HEAD.
-    Operation left uncommitted because --no-integrate-operation was requested: a995bf65df58
+    Operation left uncommitted because --no-integrate-operation was requested: 47f478c250c0
     [EOF]
     ");
 

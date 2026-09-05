@@ -653,13 +653,13 @@ fn test_new_change_id() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r", "mzvwut"]), @"
     @  mzvwutvl test.user@example.com 2001-02-03 08:05:13 c 0c3fe2d8
     │  (no description set)
-    │  -- operation ae935f447fc3 edit commit metadata for commit 75591b1896b4990e7695701fd7cdbb32dba3ff50
+    │  -- operation 65a7f2ae343f edit commit metadata for commit 75591b1896b4990e7695701fd7cdbb32dba3ff50
     ○  mzvwutvl/1 test.user@example.com 2001-02-03 08:05:13 22be6c4e (hidden)
     │  (no description set)
-    │  -- operation 8eb7de08e61f snapshot working copy
+    │  -- operation b71f8fef381a snapshot working copy
     ○  mzvwutvl/2 test.user@example.com 2001-02-03 08:05:11 b9f5490a (hidden)
        (empty) (no description set)
-       -- operation d4a1aacb95fb new empty commit
+       -- operation 8fda3209d8ae new empty commit
     [EOF]
     ");
 }

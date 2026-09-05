@@ -210,7 +210,7 @@ fn test_identical_commits_swap_by_reordering() {
     insta::assert_snapshot!(work_dir.run_jj(["evolog", "-r=@-"]), @"
     ○  oxmtprsl/1 test.user@example.com 2001-01-01 11:00:00 e94ed463 (divergent)
        (empty) test
-       -- operation 9d92250a8782 new empty commit
+       -- operation 9a8a152539f5 new empty commit
     [EOF]
     ");
     // TODO: Test that `jj op show` displays something reasonable

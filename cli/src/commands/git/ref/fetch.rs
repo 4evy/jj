@@ -28,6 +28,8 @@ use jj_lib::ref_name::RemoteNameBuf;
 use jj_lib::repo::Repo as _;
 use jj_lib::rewrite::merge_commit_trees;
 
+use super::canonicalize_git_ref_name;
+use super::qualify_git_ref_name;
 use crate::cli_util::CommandHelper;
 use crate::cli_util::WorkspaceCommandHelper;
 use crate::cli_util::WorkspaceCommandTransaction;
@@ -39,10 +41,11 @@ use crate::git_util::get_default_fetch_remotes;
 use crate::revset_util::parse_bookmark_name;
 use crate::ui::Ui;
 
-/// Fetch raw refs or full commit IDs from a Git remote
+/// Fetch refs or commits from a Git remote
 ///
-/// Each source can be a fully qualified remote ref such as GitHub's
-/// `refs/pull/123/head`, or a full Git commit ID.
+/// A source can be a fully qualified remote ref such as GitHub's
+/// `refs/pull/123/head`, a ref pattern containing one `*`, or a full Git commit
+/// ID.
 #[derive(clap::Args, Clone, Debug)]
 #[command(group(clap::ArgGroup::new("working_copy").multiple(false)))]
 pub struct GitRefFetchArgs {
@@ -58,7 +61,10 @@ pub struct GitRefFetchArgs {
     )]
     remote: Option<RemoteNameBuf>,
 
-    /// The remote refs or full Git commit IDs to fetch
+    /// Refs, ref patterns, or full Git commit IDs to fetch
+    ///
+    /// Ref names may be fully qualified (`refs/pull/123/head`) or omit the
+    /// leading `refs/` (`pull/123/head`). A ref pattern may contain one `*`.
     #[arg(value_name = "REF", num_args = 1.., required = true)]
     sources: Vec<String>,
 
@@ -92,6 +98,46 @@ pub struct GitRefFetchArgs {
     shallow_exclude: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+enum ParsedFetchSource {
+    Ref(GitRefNameBuf),
+    Pattern(String),
+    Object(String),
+}
+
+fn parse_fetch_source(
+    value: &str,
+    object_hash: gix::hash::Kind,
+) -> Result<ParsedFetchSource, CommandError> {
+    if let Ok(object_id) = gix::ObjectId::from_hex(value.as_bytes()) {
+        if object_id.kind() != object_hash {
+            return Err(user_error(format!(
+                "Git object ID uses {}, but this repository uses {}",
+                object_id.kind(),
+                object_hash
+            )));
+        }
+        return Ok(ParsedFetchSource::Object(value.to_owned()));
+    }
+
+    let canonical_name = qualify_git_ref_name(value);
+    if canonical_name.contains('*') {
+        if canonical_name.matches('*').count() != 1
+            || gix::refs::FullName::try_from(canonical_name.replace('*', "x").as_str()).is_err()
+        {
+            return Err(user_error(format!("Invalid Git ref pattern: {value}")));
+        }
+        Ok(ParsedFetchSource::Pattern(canonical_name))
+    } else {
+        canonicalize_git_ref_name(value).map(ParsedFetchSource::Ref)
+    }
+}
+
+struct FetchedTarget {
+    ref_name: Option<GitRefNameBuf>,
+    commit: Commit,
+}
+
 #[tracing::instrument(skip(ui, command))]
 pub async fn cmd_git_ref_fetch(
     ui: &mut Ui,
@@ -104,14 +150,20 @@ pub async fn cmd_git_ref_fetch(
     } else {
         get_default_fetch_remote(ui, &workspace_command)?
     };
+    let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
+    let fetch_sources = args
+        .sources
+        .iter()
+        .map(|value| parse_fetch_source(value, git_repo.object_hash()))
+        .collect::<Result<Vec<_>, _>>()?;
     let has_single_target_option = args.new || args.edit || args.bookmark.is_some();
-    if has_single_target_option && args.sources.len() != 1 {
+    if has_single_target_option
+        && (fetch_sources.len() != 1 || matches!(&fetch_sources[0], ParsedFetchSource::Pattern(_)))
+    {
         return Err(user_error(
-            "--new, --edit, and --bookmark require exactly one fetch target",
+            "--new, --edit, and --bookmark require exactly one non-pattern fetch target",
         ));
     }
-
-    let git_repo = get_git_backend(workspace_command.repo().store())?.git_repo();
     if args.shallow_exclude.is_some() && !git_repo.is_shallow() {
         return Err(user_error(
             "--shallow-exclude is only supported in an existing shallow repository",
@@ -129,23 +181,24 @@ pub async fn cmd_git_ref_fetch(
         ui,
         &mut tx,
         remote_name.as_ref(),
-        &args.sources,
+        &fetch_sources,
         depth,
         args.shallow_exclude.as_deref(),
     )
     .await;
 
     let result: Result<(), CommandError> = async {
-        let commits = fetch_result?;
-        for (source, commit) in args.sources.iter().zip(&commits) {
-            let fetched_ref_name: GitRefNameBuf = source.as_str().into();
-            tx.repo_mut().set_fetched_git_ref_target(
-                remote_name.as_ref(),
-                fetched_ref_name.as_ref(),
-                RefTarget::normal(commit.id().clone()),
-            );
+        let fetched_targets = fetch_result?;
+        for target in &fetched_targets {
+            if let Some(ref_name) = &target.ref_name {
+                tx.repo_mut().set_fetched_git_ref_target(
+                    remote_name.as_ref(),
+                    ref_name.as_ref(),
+                    RefTarget::normal(target.commit.id().clone()),
+                );
+            }
         }
-        let commit = &commits[0];
+        let commit = &fetched_targets[0].commit;
 
         if let Some(bookmark_name) = &args.bookmark {
             let existing_target = tx.repo().view().get_local_bookmark(bookmark_name);
@@ -164,9 +217,7 @@ pub async fn cmd_git_ref_fetch(
         }
 
         if args.edit {
-            tx.base_workspace_helper()
-                .check_rewritable([commit.id()])
-                .await?;
+            tx.check_rewritable([commit.id()]).await?;
             tx.edit(commit)?;
         } else if args.new {
             let merged_tree = merge_commit_trees(tx.repo(), std::slice::from_ref(commit)).await?;
@@ -228,39 +279,113 @@ async fn do_fetch(
     ui: &mut Ui,
     tx: &mut WorkspaceCommandTransaction<'_>,
     remote_name: &RemoteName,
-    sources: &[String],
+    sources: &[ParsedFetchSource],
     depth: Option<NonZeroU32>,
     shallow_exclude: Option<&str>,
-) -> (Result<Vec<Commit>, CommandError>, bool) {
+) -> (Result<Vec<FetchedTarget>, CommandError>, bool) {
     let git_settings = match GitSettings::from_settings(tx.settings()) {
         Ok(settings) => settings,
         Err(err) => return (Err(err.into()), false),
     };
-    let sources = sources.iter().map(String::as_str).collect_vec();
     let mut callback = GitSubprocessUi::new(ui);
-    let (fetch_result, shallow_boundary_changed) = git::fetch_commits_with_options(
-        tx.repo().store(),
-        git_settings.to_subprocess_options(),
-        remote_name,
-        &sources,
-        &mut callback,
-        depth,
-        shallow_exclude,
-    );
+    let mut fetched_by_source = vec![Vec::new(); sources.len()];
+    let exact_sources = sources
+        .iter()
+        .enumerate()
+        .filter_map(|(index, source)| match source {
+            ParsedFetchSource::Ref(ref_name) => {
+                Some((index, Some(ref_name.clone()), ref_name.as_str()))
+            }
+            ParsedFetchSource::Object(object_id) => Some((index, None, object_id.as_str())),
+            ParsedFetchSource::Pattern(_) => None,
+        })
+        .collect_vec();
+    let mut shallow_boundary_changed = false;
+    if !exact_sources.is_empty() {
+        if depth.is_some() || shallow_exclude.is_some() {
+            for (index, ref_name, source) in exact_sources {
+                let (fetch_result, changed) = git::fetch_commits_with_options(
+                    tx.repo().store(),
+                    git_settings.to_subprocess_options(),
+                    remote_name,
+                    &[source],
+                    &mut callback,
+                    depth,
+                    shallow_exclude,
+                );
+                shallow_boundary_changed |= changed;
+                let commit_id = match fetch_result {
+                    Ok(mut ids) => ids.pop().expect("one source should return one commit"),
+                    Err(err) => return (Err(err.into()), shallow_boundary_changed),
+                };
+                fetched_by_source[index].push((ref_name, source.to_owned(), commit_id));
+            }
+        } else {
+            let source_names = exact_sources
+                .iter()
+                .map(|(_, _, source)| *source)
+                .collect_vec();
+            let (fetch_result, changed) = git::fetch_commits_with_options(
+                tx.repo().store(),
+                git_settings.to_subprocess_options(),
+                remote_name,
+                &source_names,
+                &mut callback,
+                depth,
+                shallow_exclude,
+            );
+            shallow_boundary_changed |= changed;
+            let commit_ids = match fetch_result {
+                Ok(ids) => ids,
+                Err(err) => return (Err(err.into()), shallow_boundary_changed),
+            };
+            for ((index, ref_name, source), commit_id) in exact_sources.into_iter().zip(commit_ids)
+            {
+                fetched_by_source[index].push((ref_name, source.to_owned(), commit_id));
+            }
+        }
+    }
 
-    let result: Result<Vec<Commit>, CommandError> = async {
-        let commit_ids = fetch_result?;
-        let mut commits = Vec::with_capacity(commit_ids.len());
-        for (source, commit_id) in sources.into_iter().zip(commit_ids) {
+    for (index, source) in sources.iter().enumerate() {
+        let ParsedFetchSource::Pattern(pattern) = source else {
+            continue;
+        };
+        let (fetch_result, changed) = git::fetch_ref_pattern_with_options(
+            tx.repo().store(),
+            git_settings.to_subprocess_options(),
+            remote_name,
+            pattern,
+            &mut callback,
+            depth,
+            shallow_exclude,
+        );
+        shallow_boundary_changed |= changed;
+        let targets = match fetch_result {
+            Ok(targets) => targets,
+            Err(err) => return (Err(err.into()), shallow_boundary_changed),
+        };
+        fetched_by_source[index].extend(targets.into_iter().map(|(ref_name, commit_id)| {
+            let display_source = ref_name.as_str().to_owned();
+            (Some(ref_name), display_source, commit_id)
+        }));
+    }
+
+    let result: Result<Vec<FetchedTarget>, CommandError> = async {
+        let fetched_ids = fetched_by_source
+            .into_iter()
+            .flatten()
+            .unique_by(|target| target.1.clone());
+        let mut fetched_targets = Vec::new();
+        for (ref_name, display_source, commit_id) in fetched_ids {
             let commit = import_commit(tx.repo_mut(), commit_id).await?;
             if let Some(mut formatter) = ui.status_formatter() {
-                write!(formatter, "Fetched {source} as ")?;
+                write!(formatter, "Fetched {display_source} as ")?;
                 tx.write_commit_summary(formatter.as_mut(), &commit)?;
                 writeln!(formatter)?;
             }
-            commits.push(commit);
+            fetched_targets.push(FetchedTarget { ref_name, commit });
         }
-        Ok(commits)
+        Ok(fetched_targets)
     }
     .await;
     (result, shallow_boundary_changed)
