@@ -85,13 +85,19 @@ None
   directory or loaded via `--config-file`). This allows precise file targeting
   and avoids interactive prompts when multiple config files exist.
 
-* `jj git ref fetch` can fetch raw Git refs or full commit IDs from a configured
-  remote. The fetched commits become visible without creating bookmarks or
-  remote-tracking refs.
+* `jj git ref fetch` can fetch raw Git refs, ref patterns, and full commit IDs
+  from a configured remote. Fetched refs are durable, undoable Jujutsu state
+  and can be queried by name, revset, or template; commits fetched directly by
+  ID are imported anonymously.
 
 * `jj git ref push` can push one revision to a fully qualified Git ref. Each
   push must be unconditional, require the ref to be absent, or require it to
   point to an expected object ID.
+
+* `jj git fetch` now supports `--depth` in existing repositories, with
+  `git.fetch-depth` as the default for subsequent fetches in shallow
+  repositories. `jj git ref fetch --shallow-exclude` can fetch a review stack
+  plus one parent generation for a usable diff base.
 
 ### Fixed bugs
 
@@ -205,16 +211,6 @@ Thanks to the people who made this release happen!
 None
 
 ### New features
-
-* `jj git ref fetch` can fetch raw Git refs, ref patterns, and full commit IDs
-  from a configured remote. Fetched refs are durable, undoable Jujutsu state
-  and can be queried by name, revset, or template; commits fetched directly by
-  ID are imported anonymously.
-
-* `jj git fetch` now supports `--depth` in existing repositories, with
-  `git.fetch-depth` as the default for subsequent fetches in shallow
-  repositories. `jj git ref fetch --shallow-exclude` can fetch a review stack
-  plus one parent generation for a usable diff base.
 
 * New `merge_point()` revset function which (similar to `fork_point`) finds the
   point where multiple branches merge.

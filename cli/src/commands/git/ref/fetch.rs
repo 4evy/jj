@@ -102,7 +102,7 @@ pub struct GitRefFetchArgs {
 enum ParsedFetchSource {
     Ref(GitRefNameBuf),
     Pattern(String),
-    Object(String),
+    Object(gix::ObjectId),
 }
 
 fn parse_fetch_source(
@@ -117,7 +117,7 @@ fn parse_fetch_source(
                 object_hash
             )));
         }
-        return Ok(ParsedFetchSource::Object(value.to_owned()));
+        return Ok(ParsedFetchSource::Object(object_id));
     }
 
     let canonical_name = qualify_git_ref_name(value);
@@ -294,9 +294,9 @@ async fn do_fetch(
         .enumerate()
         .filter_map(|(index, source)| match source {
             ParsedFetchSource::Ref(ref_name) => {
-                Some((index, Some(ref_name.clone()), ref_name.as_str()))
+                Some((index, Some(ref_name.clone()), ref_name.as_str().to_owned()))
             }
-            ParsedFetchSource::Object(object_id) => Some((index, None, object_id.as_str())),
+            ParsedFetchSource::Object(object_id) => Some((index, None, object_id.to_string())),
             ParsedFetchSource::Pattern(_) => None,
         })
         .collect_vec();
@@ -308,7 +308,7 @@ async fn do_fetch(
                     tx.repo().store(),
                     git_settings.to_subprocess_options(),
                     remote_name,
-                    &[source],
+                    &[source.as_str()],
                     &mut callback,
                     depth,
                     shallow_exclude,
@@ -318,12 +318,12 @@ async fn do_fetch(
                     Ok(mut ids) => ids.pop().expect("one source should return one commit"),
                     Err(err) => return (Err(err.into()), shallow_boundary_changed),
                 };
-                fetched_by_source[index].push((ref_name, source.to_owned(), commit_id));
+                fetched_by_source[index].push((ref_name, source, commit_id));
             }
         } else {
             let source_names = exact_sources
                 .iter()
-                .map(|(_, _, source)| *source)
+                .map(|(_, _, source)| source.as_str())
                 .collect_vec();
             let (fetch_result, changed) = git::fetch_commits_with_options(
                 tx.repo().store(),
@@ -341,7 +341,7 @@ async fn do_fetch(
             };
             for ((index, ref_name, source), commit_id) in exact_sources.into_iter().zip(commit_ids)
             {
-                fetched_by_source[index].push((ref_name, source.to_owned(), commit_id));
+                fetched_by_source[index].push((ref_name, source, commit_id));
             }
         }
     }

@@ -2913,6 +2913,12 @@ pub enum GitFetchError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    #[error("Failed to clean up temporary Git refs under '{prefix}'")]
+    TemporaryRefsCleanup {
+        prefix: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     #[error(transparent)]
     RemoteName(#[from] GitRemoteNameError),
     #[error(transparent)]
@@ -3867,31 +3873,29 @@ fn delete_temporary_fetch_refs(
     git_repo: &gix::Repository,
     prefix: &str,
 ) -> Result<(), GitFetchError> {
-    let references = git_repo.references().map_err(|err| {
-        GitSubprocessError::External(format!(
-            "failed to inspect temporary Git refs under {prefix}: {err}"
-        ))
-    })?;
+    let references = git_repo
+        .references()
+        .map_err(|source| temporary_refs_cleanup_error(prefix, source))?;
     let edits: Vec<_> = references
         .prefixed(prefix)
-        .map_err(|err| {
-            GitSubprocessError::External(format!(
-                "failed to inspect temporary Git refs under {prefix}: {err}"
-            ))
-        })?
+        .map_err(|source| temporary_refs_cleanup_error(prefix, source))?
         .map_ok(remove_ref)
         .try_collect()
-        .map_err(|err| {
-            GitSubprocessError::External(format!(
-                "failed to inspect temporary Git refs under {prefix}: {err}"
-            ))
-        })?;
-    git_repo.edit_references(edits).map_err(|err| {
-        GitSubprocessError::External(format!(
-            "failed to delete temporary Git refs under {prefix}: {err}"
-        ))
-    })?;
+        .map_err(|source| temporary_refs_cleanup_error(prefix, source))?;
+    git_repo
+        .edit_references(edits)
+        .map_err(|source| temporary_refs_cleanup_error(prefix, source))?;
     Ok(())
+}
+
+fn temporary_refs_cleanup_error(
+    prefix: &str,
+    source: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
+) -> GitFetchError {
+    GitFetchError::TemporaryRefsCleanup {
+        prefix: prefix.to_owned(),
+        source: source.into(),
+    }
 }
 
 #[derive(Error, Debug)]

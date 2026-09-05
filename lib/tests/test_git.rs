@@ -4346,6 +4346,71 @@ fn test_fetch_commit_rejects_invalid_source() -> TestResult {
 }
 
 #[test]
+fn test_fetch_ref_pattern_resolves_commits_and_cleans_up() -> TestResult {
+    let test_data = GitRepoData::create();
+    let commit1 = empty_git_commit(&test_data.origin_repo, "refs/pull/123/head", &[]);
+    let commit2 = empty_git_commit(&test_data.origin_repo, "refs/pull/456/head", &[]);
+    let subprocess_options = GitSubprocessOptions::from_settings(test_data.repo.settings())?;
+    let (targets, shallow_boundary_changed) = git::fetch_ref_pattern_with_options(
+        test_data.repo.store(),
+        subprocess_options,
+        "origin".as_ref(),
+        "refs/pull/*/head",
+        &mut NullCallback,
+        None,
+        None,
+    );
+    let targets = targets?;
+    assert!(!shallow_boundary_changed);
+
+    assert_eq!(
+        targets.into_iter().collect::<BTreeMap<_, _>>(),
+        btreemap! {
+            "refs/pull/123/head".into() => jj_id(commit1),
+            "refs/pull/456/head".into() => jj_id(commit2),
+        }
+    );
+    assert!(
+        test_data
+            .git_repo
+            .references()?
+            .prefixed("refs/jj/fetch/")?
+            .next()
+            .is_none()
+    );
+
+    let blob_id = test_data.origin_repo.write_blob(b"not a commit")?.detach();
+    test_data.origin_repo.reference(
+        "refs/pull/blob/head",
+        blob_id,
+        gix::refs::transaction::PreviousValue::MustNotExist,
+        "create non-commit ref",
+    )?;
+    let subprocess_options = GitSubprocessOptions::from_settings(test_data.repo.settings())?;
+    let (result, shallow_boundary_changed) = git::fetch_ref_pattern_with_options(
+        test_data.repo.store(),
+        subprocess_options,
+        "origin".as_ref(),
+        "refs/pull/*/head",
+        &mut NullCallback,
+        None,
+        None,
+    );
+
+    assert_matches!(result, Err(GitFetchError::NotACommit { .. }));
+    assert!(!shallow_boundary_changed);
+    assert!(
+        test_data
+            .git_repo
+            .references()?
+            .prefixed("refs/jj/fetch/")?
+            .next()
+            .is_none()
+    );
+    Ok(())
+}
+
+#[test]
 fn test_fetch_initial_commit_head_is_not_set() -> TestResult {
     let test_data = GitRepoData::create();
     let subprocess_options = GitSubprocessOptions::from_settings(test_data.repo.settings())?;

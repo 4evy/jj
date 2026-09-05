@@ -590,6 +590,7 @@ jj currently does not support partial clones. To use jj with this repository, tr
                 }
                 GitFetchError::RejectedUpdates(_)
                 | GitFetchError::TemporaryRefCleanup { .. }
+                | GitFetchError::TemporaryRefsCleanup { .. }
                 | GitFetchError::Subprocess(_)
                 | GitFetchError::ShallowCommits(_)
                 | GitFetchError::RefreshShallowState(_)

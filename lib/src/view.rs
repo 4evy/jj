@@ -112,6 +112,20 @@ impl View {
         &self.data.fetched_git_refs
     }
 
+    /// Iterates over all fetched Git refs in `(remote, ref)` order.
+    pub fn all_fetched_git_refs(
+        &self,
+    ) -> impl Iterator<Item = ((&RemoteName, &GitRefName), &RefTarget)> {
+        self.data
+            .fetched_git_refs
+            .iter()
+            .flat_map(|(remote_name, refs)| {
+                refs.iter().map(move |(ref_name, target)| {
+                    ((remote_name.as_ref(), ref_name.as_ref()), target)
+                })
+            })
+    }
+
     pub fn git_head(&self, workspace: &WorkspaceName) -> &RefTarget {
         self.data.git_heads.get(workspace).flatten()
     }
@@ -604,16 +618,13 @@ impl View {
         &self,
         ref_matcher: &StringMatcher,
         remote_matcher: &StringMatcher,
-    ) -> impl Iterator<Item = (&RemoteName, &GitRefName, &RefTarget)> {
+    ) -> impl Iterator<Item = ((&RemoteName, &GitRefName), &RefTarget)> {
         remote_matcher
             .filter_btree_map_as_deref(&self.data.fetched_git_refs)
-            .map(|(remote, refs)| {
+            .flat_map(|(remote, refs)| {
                 ref_matcher
                     .filter_btree_map_as_deref(refs)
-                    .map(move |(name, target)| (remote.as_ref(), name.as_ref(), target))
-            })
-            .kmerge_by(|(remote1, name1, _), (remote2, name2, _)| {
-                (remote1, name1) < (remote2, name2)
+                    .map(move |(name, target)| ((remote.as_ref(), name.as_ref()), target))
             })
     }
 

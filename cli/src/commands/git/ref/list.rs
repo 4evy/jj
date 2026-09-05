@@ -52,15 +52,30 @@ pub async fn cmd_git_ref_list(
         .map(canonicalize_git_ref_name)
         .transpose()?;
     let mut matched = 0;
-    for (remote_name, refs) in view.fetched_git_refs() {
+    let mut has_conflict = false;
+    for ((remote_name, ref_name), target) in view.all_fetched_git_refs() {
         if remote_filter.is_some_and(|remote| remote != remote_name) {
             continue;
         }
-        for (ref_name, target) in refs {
-            if ref_filter.as_ref().is_some_and(|name| name != ref_name) {
-                continue;
+        if ref_filter.as_ref().is_some_and(|name| name != ref_name) {
+            continue;
+        }
+        matched += 1;
+        if target.has_conflict() {
+            has_conflict = true;
+            writeln!(
+                ui.stdout(),
+                "{} {} (conflicted):",
+                remote_name.as_symbol(),
+                ref_name.as_symbol()
+            )?;
+            for id in target.added_ids() {
+                writeln!(ui.stdout(), "  + {}", id.hex())?;
             }
-            matched += 1;
+            for id in target.removed_ids() {
+                writeln!(ui.stdout(), "  - {}", id.hex())?;
+            }
+        } else {
             let target_ids = target.added_ids().map(|id| id.hex()).join(", ");
             writeln!(
                 ui.stdout(),
@@ -73,6 +88,11 @@ pub async fn cmd_git_ref_list(
     }
     if matched == 0 {
         writeln!(ui.status(), "No fetched Git refs.")?;
+    } else if has_conflict {
+        writeln!(
+            ui.hint_default(),
+            "Some fetched Git refs have conflicts. Fetch them again or forget them to resolve."
+        )?;
     }
     Ok(())
 }

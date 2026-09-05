@@ -716,7 +716,9 @@ fn test_git_ref_fetch_non_commit_ref_deletes_temporary_ref() -> TestResult {
     let backing_git_repo = gix::open(git_root)?;
     assert!(
         backing_git_repo
-            .try_find_reference("refs/jj/fetch/origin/refs/pull/123/head")?
+            .references()?
+            .prefixed("refs/jj/fetch/")?
+            .next()
             .is_none()
     );
     Ok(())
@@ -747,12 +749,13 @@ fn test_git_ref_fetch_wildcard_ref() -> TestResult {
     let git_root_output = work_dir.run_jj(["git", "root"]).success();
     let git_root = git_root_output.stdout.raw().trim();
     let backing_git_repo = gix::open(git_root)?;
-    for ref_name in [
-        "refs/jj/fetch/origin/refs/pull/123/head",
-        "refs/jj/fetch/origin/refs/pull/456/head",
-    ] {
-        assert!(backing_git_repo.try_find_reference(ref_name)?.is_none());
-    }
+    assert!(
+        backing_git_repo
+            .references()?
+            .prefixed("refs/jj/fetch/")?
+            .next()
+            .is_none()
+    );
     Ok(())
 }
 
@@ -835,13 +838,14 @@ fn test_git_ref_fetch_commit_id_anonymously() {
         "backport candidate",
     );
     let commit_id_string = commit_id.to_string();
+    let uppercase_commit_id = commit_id_string.to_uppercase();
 
     let output = work_dir.run_jj([
         "git",
         "ref",
         "fetch",
         "--remote=origin",
-        commit_id_string.as_str(),
+        uppercase_commit_id.as_str(),
     ]);
     insta::assert_snapshot!(output, @r"
     ------- stderr -------
@@ -1535,6 +1539,54 @@ fn test_git_ref_fetch_undo_and_op_restore() {
     origin refs/pull/123/head 84c6f409c8199d0f3fd9b29fb5119c090da42d5e
     [EOF]
     ");
+}
+
+#[test]
+fn test_git_ref_list_conflicted() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    let ref_name = "refs/pull/123/head";
+    let base_id = add_commit_to_ref(&git_repo, ref_name, "base", "base");
+
+    work_dir
+        .run_jj(["git", "ref", "fetch", "--remote=origin", ref_name])
+        .success();
+    let left_id = add_commit_to_ref(&git_repo, ref_name, "left", "left");
+    work_dir
+        .run_jj(["git", "ref", "fetch", "--remote=origin", ref_name])
+        .success();
+
+    git_repo
+        .reference(
+            ref_name,
+            base_id,
+            gix::refs::transaction::PreviousValue::Any,
+            "restore base ref",
+        )
+        .unwrap();
+    let right_id = add_commit_to_ref(&git_repo, ref_name, "right", "right");
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "fetch",
+            "--remote=origin",
+            ref_name,
+            "--at-op=@-",
+        ])
+        .success();
+
+    let output = work_dir.run_jj(["git", "ref", "list"]);
+    let stdout = output.stdout.raw();
+    assert!(stdout.contains("origin refs/pull/123/head (conflicted):\n"));
+    assert!(stdout.contains(&format!("  + {left_id}\n")));
+    assert!(stdout.contains(&format!("  + {right_id}\n")));
+    assert!(stdout.contains(&format!("  - {base_id}\n")));
+    assert!(output.stderr.raw().contains(
+        "Hint: Some fetched Git refs have conflicts. Fetch them again or forget them to resolve."
+    ));
 }
 
 #[test]
