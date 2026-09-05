@@ -197,6 +197,11 @@ pub enum GitRefKind {
 pub struct GitPushStats {
     /// reference accepted by the remote
     pub pushed: Vec<GitRefNameBuf>,
+    /// References that already pointed to the requested target.
+    ///
+    /// These references are also included in `pushed` because the requested
+    /// state was accepted by the remote.
+    pub up_to_date: Vec<GitRefNameBuf>,
     /// rejected reference, due to lease failure, with an optional reason
     pub rejected: Vec<(GitRefNameBuf, Option<String>)>,
     /// reference rejected by the remote, with an optional reason
@@ -304,40 +309,42 @@ impl NegativeRefSpec {
     }
 }
 
-/// Helper struct that matches a refspec with its expected location in the
-/// remote it's being pushed to
+/// A refspec paired with its force or lease safety policy.
 pub(crate) struct RefToPush<'a> {
-    pub(crate) refspec: &'a RefSpec,
-    pub(crate) expected_location: Option<&'a gix::oid>,
+    refspec: &'a RefSpec,
+    mode: GitRefPushMode<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GitRefPushMode<'a> {
+    Force,
+    ForceWithLease(Option<&'a gix::oid>),
 }
 
 impl<'a> RefToPush<'a> {
-    fn new(
-        refspec: &'a RefSpec,
-        expected_locations: &'a HashMap<&GitRefName, Option<&gix::oid>>,
-    ) -> Self {
-        let expected_location = *expected_locations
-            .get(GitRefName::new(&refspec.destination))
-            .expect(
-                "The refspecs and the expected locations were both constructed from the same \
-                 source of truth. This means the lookup should always work.",
-            );
+    fn new(refspec: &'a RefSpec, mode: GitRefPushMode<'a>) -> Self {
+        Self { refspec, mode }
+    }
 
-        Self {
-            refspec,
-            expected_location,
+    pub(crate) fn to_git_lease(&self) -> Option<String> {
+        match self.mode {
+            GitRefPushMode::Force => None,
+            GitRefPushMode::ForceWithLease(expected_location) => Some(format!(
+                "{}:{}",
+                self.refspec.destination,
+                expected_location
+                    .map(|x| x.to_string())
+                    .as_deref()
+                    .unwrap_or("")
+            )),
         }
     }
 
-    pub(crate) fn to_git_lease(&self) -> String {
-        format!(
-            "{}:{}",
-            self.refspec.destination,
-            self.expected_location
-                .map(|x| x.to_string())
-                .as_deref()
-                .unwrap_or("")
-        )
+    pub(crate) fn to_git_format(&self) -> String {
+        match self.mode {
+            GitRefPushMode::Force => self.refspec.to_git_format(),
+            GitRefPushMode::ForceWithLease(_) => self.refspec.to_git_format_not_forced(),
+        }
     }
 }
 
@@ -3537,13 +3544,50 @@ pub struct GitPushRefTargets {
     pub tags: Vec<(RefNameBuf, Diff<Option<CommitId>>)>,
 }
 
+/// A raw Git ref update and its safety policy.
 pub struct GitRefUpdate {
-    pub qualified_name: GitRefNameBuf,
-    /// Expected position on the remote and new position to push.
-    ///
-    /// The expected position is sourced from the local remote-tracking branch.
-    /// This should be `None` if we expect the ref to not exist on the remote.
-    pub targets: Diff<Option<gix::ObjectId>>,
+    full_name: GitRefNameBuf,
+    mode: GitRefUpdateMode,
+}
+
+enum GitRefUpdateMode {
+    Force(Option<gix::ObjectId>),
+    ForceWithLease(Diff<Option<gix::ObjectId>>),
+}
+
+impl GitRefUpdate {
+    /// Creates a forced update guarded by the expected target in
+    /// `targets.before`.
+    pub fn with_lease(full_name: GitRefNameBuf, targets: Diff<Option<gix::ObjectId>>) -> Self {
+        Self {
+            full_name,
+            mode: GitRefUpdateMode::ForceWithLease(targets),
+        }
+    }
+
+    /// Creates an unconditional forced update.
+    pub fn forced(full_name: GitRefNameBuf, new_target: Option<gix::ObjectId>) -> Self {
+        Self {
+            full_name,
+            mode: GitRefUpdateMode::Force(new_target),
+        }
+    }
+
+    fn new_target(&self) -> Option<&gix::ObjectId> {
+        match &self.mode {
+            GitRefUpdateMode::Force(new_target) => new_target.as_ref(),
+            GitRefUpdateMode::ForceWithLease(targets) => targets.after.as_ref(),
+        }
+    }
+
+    fn push_mode(&self) -> GitRefPushMode<'_> {
+        match &self.mode {
+            GitRefUpdateMode::Force(_) => GitRefPushMode::Force,
+            GitRefUpdateMode::ForceWithLease(targets) => {
+                GitRefPushMode::ForceWithLease(targets.before.as_deref())
+            }
+        }
+    }
 }
 
 /// Miscellaneous options for Git push command.
@@ -3562,8 +3606,6 @@ pub fn push_refs(
     callback: &mut dyn GitSubprocessCallback,
     options: &GitPushOptions,
 ) -> Result<GitPushStats, GitPushError> {
-    validate_remote_name(remote)?;
-
     let git_repo = get_git_repo(mut_repo.store())?;
     let to_tag_target = |name: &RefName, remote: &RemoteName, id: &CommitId| {
         let remote_matcher = StringMatcher::exact(remote);
@@ -3572,24 +3614,28 @@ pub fn push_refs(
             .unwrap_or(oid)
     };
     let ref_updates = itertools::chain(
-        targets.bookmarks.iter().map(|(name, update)| GitRefUpdate {
-            qualified_name: format!("refs/heads/{name}", name = name.as_str()).into(),
-            targets: update
-                .as_ref()
-                .map(|id| id.as_ref().map(owned_oid_from_commit_id)),
+        targets.bookmarks.iter().map(|(name, update)| {
+            GitRefUpdate::with_lease(
+                format!("refs/heads/{name}", name = name.as_str()).into(),
+                update
+                    .as_ref()
+                    .map(|id| id.as_ref().map(owned_oid_from_commit_id)),
+            )
         }),
-        targets.tags.iter().map(|(name, update)| GitRefUpdate {
-            qualified_name: format!("refs/tags/{name}", name = name.as_str()).into(),
-            targets: Diff {
-                before: update
-                    .before
-                    .as_ref()
-                    .map(|id| to_tag_target(name, remote, id)),
-                after: update
-                    .after
-                    .as_ref()
-                    .map(|id| to_tag_target(name, REMOTE_NAME_FOR_LOCAL_GIT_REPO, id)),
-            },
+        targets.tags.iter().map(|(name, update)| {
+            GitRefUpdate::with_lease(
+                format!("refs/tags/{name}", name = name.as_str()).into(),
+                Diff {
+                    before: update
+                        .before
+                        .as_ref()
+                        .map(|id| to_tag_target(name, remote, id)),
+                    after: update
+                        .after
+                        .as_ref()
+                        .map(|id| to_tag_target(name, REMOTE_NAME_FOR_LOCAL_GIT_REPO, id)),
+                },
+            )
         }),
     )
     .collect_vec();
@@ -3607,12 +3653,12 @@ pub fn push_refs(
     let pushed: HashSet<&GitRefName> = push_stats.pushed.iter().map(AsRef::as_ref).collect();
     let pushed_bookmark_updates = || {
         iter::zip(&targets.bookmarks, &ref_updates[..targets.bookmarks.len()])
-            .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
+            .filter(|(_, ref_update)| pushed.contains(&*ref_update.full_name))
             .map(|((name, update), _)| (&**name, update))
     };
     let pushed_tag_updates = || {
         iter::zip(&targets.tags, &ref_updates[targets.bookmarks.len()..])
-            .filter(|(_, ref_update)| pushed.contains(&*ref_update.qualified_name))
+            .filter(|(_, ref_update)| pushed.contains(&*ref_update.full_name))
             .map(|((name, update), ref_update)| (&**name, update, ref_update))
     };
 
@@ -3627,7 +3673,7 @@ pub fn push_refs(
     // remote, update failure isn't a hard error.
     for (name, _, ref_update) in pushed_tag_updates() {
         let symbol = name.to_remote_symbol(remote);
-        let edit = to_remote_tag_ref_update(symbol, ref_update.targets.after);
+        let edit = to_remote_tag_ref_update(symbol, ref_update.new_target().copied());
         if let Err(err) = git_repo.edit_reference(edit) {
             tracing::warn!(?symbol, ?err, "failed to update remote tag ref");
         }
@@ -3660,6 +3706,7 @@ pub fn push_refs(
     assert!(push_stats.unexported_bookmarks.is_empty());
     let push_stats = GitPushStats {
         pushed: push_stats.pushed,
+        up_to_date: push_stats.up_to_date,
         rejected: push_stats.rejected,
         remote_rejected: push_stats.remote_rejected,
         unexported_bookmarks,
@@ -3676,26 +3723,20 @@ pub fn push_updates(
     callback: &mut dyn GitSubprocessCallback,
     options: &GitPushOptions,
 ) -> Result<GitPushStats, GitPushError> {
-    let mut qualified_remote_refs_expected_locations = HashMap::new();
+    validate_remote_name(remote_name)?;
+
     let mut refspecs = vec![];
     for update in updates {
-        qualified_remote_refs_expected_locations.insert(
-            update.qualified_name.as_ref(),
-            update.targets.before.as_deref(),
-        );
-        if let Some(new_target) = &update.targets.after {
-            // We always force-push. We use the push_negotiation callback in
-            // `push_refs` to check that the refs did not unexpectedly move on
-            // the remote.
-            refspecs.push(RefSpec::forced(
-                new_target.to_string(),
-                &update.qualified_name,
-            ));
+        if let Some(new_target) = update.new_target() {
+            // Ref updates with an expected location are sent as unforced
+            // refspecs with force-with-lease. Unconditional updates retain the
+            // forced refspec.
+            refspecs.push(RefSpec::forced(new_target.to_string(), &update.full_name));
         } else {
             // Prefixing this with `+` to force-push or not should make no
             // difference. The push negotiation happens regardless, and wouldn't
             // allow creating a branch if it's not a fast-forward.
-            refspecs.push(RefSpec::delete(&update.qualified_name));
+            refspecs.push(RefSpec::delete(&update.full_name));
         }
     }
 
@@ -3708,13 +3749,13 @@ pub fn push_updates(
         return Err(GitPushError::NoSuchRemote(remote_name.to_owned()));
     }
 
-    let refs_to_push: Vec<RefToPush> = refspecs
-        .iter()
-        .map(|full_refspec| RefToPush::new(full_refspec, &qualified_remote_refs_expected_locations))
+    let refs_to_push: Vec<RefToPush> = iter::zip(updates, &refspecs)
+        .map(|(update, full_refspec)| RefToPush::new(full_refspec, update.push_mode()))
         .collect();
 
     let mut push_stats = git_ctx.spawn_push(remote_name, &refs_to_push, callback, options)?;
     push_stats.pushed.sort();
+    push_stats.up_to_date.sort();
     push_stats.rejected.sort();
     push_stats.remote_rejected.sort();
     Ok(push_stats)

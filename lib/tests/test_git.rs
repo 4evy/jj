@@ -5318,6 +5318,7 @@ fn test_push_bookmarks_success() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
@@ -5394,6 +5395,7 @@ fn test_push_bookmarks_deletion() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
@@ -5471,6 +5473,7 @@ fn test_push_bookmarks_mixed_deletion_and_addition() -> TestResult {
                 "refs/heads/topic",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
@@ -5551,6 +5554,7 @@ fn test_push_bookmarks_not_fast_forward() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
@@ -5606,6 +5610,7 @@ fn test_push_bookmarks_partial_success() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [],
         rejected: [
             (
                 GitRefNameBuf(
@@ -5711,6 +5716,7 @@ fn test_push_bookmarks_unmapped_refs() -> TestResult {
                 "refs/heads/bookmark2",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [
@@ -6140,11 +6146,10 @@ fn test_push_updates_unexpectedly_moved_sideways_on_remote() -> TestResult {
 
     let attempt_push_expecting_sideways = |target: Option<&Commit>| {
         let subprocess_options = GitSubprocessOptions::from_settings(&settings).unwrap();
-        let targets = [GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(Some(&setup.sideways_commit), target)
-                .map(|commit| commit.map(git_id)),
-        }];
+        let targets = [GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(Some(&setup.sideways_commit), target).map(|commit| commit.map(git_id)),
+        )];
         git::push_updates(
             setup.jj_repo.as_ref(),
             subprocess_options,
@@ -6196,11 +6201,46 @@ fn test_push_updates_unexpectedly_moved_sideways_on_remote() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [
+            GitRefNameBuf(
+                "refs/heads/main",
+            ),
+        ],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
     }
     "#);
+    Ok(())
+}
+
+#[test]
+fn test_push_updates_forced() -> TestResult {
+    let settings = testutils::user_settings();
+    let temp_dir = testutils::new_temp_dir();
+    let setup = set_up_push_repos(&settings, &temp_dir);
+    let subprocess_options = GitSubprocessOptions::from_settings(&settings)?;
+
+    // The new target is not a descendant of the remote target. An unconditional
+    // update must therefore retain the forced refspec.
+    let stats = git::push_updates(
+        setup.jj_repo.as_ref(),
+        subprocess_options,
+        "origin".as_ref(),
+        &[GitRefUpdate::forced(
+            "refs/heads/main".into(),
+            Some(git_id(&setup.sideways_commit)),
+        )],
+        &mut NullCallback,
+        &GitPushOptions::default(),
+    )?;
+
+    assert!(stats.all_ok());
+    let source_repo = testutils::git::open(&setup.source_repo_dir);
+    assert_eq!(
+        source_repo.find_reference("refs/heads/main")?.id(),
+        git_id(&setup.sideways_commit)
+    );
     Ok(())
 }
 
@@ -6225,11 +6265,10 @@ fn test_push_updates_unexpectedly_moved_forward_on_remote() -> TestResult {
 
     let attempt_push_expecting_parent = |target: Option<&Commit>| {
         let subprocess_options = GitSubprocessOptions::from_settings(&settings).unwrap();
-        let targets = [GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(Some(&setup.parent_of_main_commit), target)
-                .map(|commit| commit.map(git_id)),
-        }];
+        let targets = [GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(Some(&setup.parent_of_main_commit), target).map(|commit| commit.map(git_id)),
+        )];
         git::push_updates(
             setup.jj_repo.as_ref(),
             subprocess_options,
@@ -6291,10 +6330,10 @@ fn test_push_updates_unexpectedly_exists_on_remote() -> TestResult {
 
     let attempt_push_expecting_absence = |target: Option<&Commit>| {
         let subprocess_options = GitSubprocessOptions::from_settings(&settings).unwrap();
-        let targets = [GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(None, target).map(|commit| commit.map(git_id)),
-        }];
+        let targets = [GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(None, target).map(|commit| commit.map(git_id)),
+        )];
         git::push_updates(
             setup.jj_repo.as_ref(),
             subprocess_options,
@@ -6333,11 +6372,11 @@ fn test_push_updates_success() -> TestResult {
         setup.jj_repo.as_ref(),
         subprocess_options,
         "origin".as_ref(),
-        &[GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(&setup.main_commit, &setup.child_of_main_commit)
+        &[GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(&setup.main_commit, &setup.child_of_main_commit)
                 .map(|commit| Some(git_id(commit))),
-        }],
+        )],
         &mut NullCallback,
         &GitPushOptions::default(),
     )?;
@@ -6348,6 +6387,7 @@ fn test_push_updates_success() -> TestResult {
                 "refs/heads/main",
             ),
         ],
+        up_to_date: [],
         rejected: [],
         remote_rejected: [],
         unexported_bookmarks: [],
@@ -6378,11 +6418,11 @@ fn test_push_updates_no_such_remote() -> TestResult {
         setup.jj_repo.as_ref(),
         subprocess_options,
         "invalid-remote".as_ref(),
-        &[GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(&setup.main_commit, &setup.child_of_main_commit)
+        &[GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(&setup.main_commit, &setup.child_of_main_commit)
                 .map(|commit| Some(git_id(commit))),
-        }],
+        )],
         &mut NullCallback,
         &GitPushOptions::default(),
     );
@@ -6400,15 +6440,15 @@ fn test_push_updates_invalid_remote() -> TestResult {
         setup.jj_repo.as_ref(),
         subprocess_options,
         "http://invalid-remote".as_ref(),
-        &[GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(&setup.main_commit, &setup.child_of_main_commit)
+        &[GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(&setup.main_commit, &setup.child_of_main_commit)
                 .map(|commit| Some(git_id(commit))),
-        }],
+        )],
         &mut NullCallback,
         &GitPushOptions::default(),
     );
-    assert!(matches!(result, Err(GitPushError::NoSuchRemote(_))));
+    assert_matches!(result, Err(GitPushError::RemoteName(_)));
     Ok(())
 }
 
@@ -7079,11 +7119,11 @@ fn test_push_updates_with_options() -> TestResult {
         setup.jj_repo.as_ref(),
         git_settings.to_subprocess_options(),
         "origin".as_ref(),
-        &[GitRefUpdate {
-            qualified_name: "refs/heads/main".into(),
-            targets: Diff::new(&setup.main_commit, &setup.child_of_main_commit)
+        &[GitRefUpdate::with_lease(
+            "refs/heads/main".into(),
+            Diff::new(&setup.main_commit, &setup.child_of_main_commit)
                 .map(|commit| Some(git_id(commit))),
-        }],
+        )],
         &mut callback,
         &GitPushOptions {
             remote_push_options: vec![
