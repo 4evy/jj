@@ -548,6 +548,32 @@ pub fn print_git_export_stats(ui: &Ui, stats: &GitExportStats) -> Result<(), std
 }
 
 pub fn print_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
+    print_push_stats_with_hints(
+        ui,
+        stats,
+        "Try fetching from the remote, then make the bookmark point to where you want it to be, \
+         and push again.",
+        "Try checking if you have permission to push to all the bookmarks.",
+    )
+}
+
+/// Prints the result of pushing a raw Git ref.
+pub fn print_git_ref_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
+    print_push_stats_with_hints(
+        ui,
+        stats,
+        "Retry with `--expected-at=<OBJECT_ID>` set to the remote ref's current object ID, or use \
+         `--force` to push unconditionally.",
+        "Check that you have permission to push to this Git ref.",
+    )
+}
+
+fn print_push_stats_with_hints(
+    ui: &Ui,
+    stats: &GitPushStats,
+    rejected_hint: &str,
+    remote_rejected_hint: &str,
+) -> io::Result<()> {
     if !stats.rejected.is_empty() {
         writeln!(
             ui.warning_default(),
@@ -563,11 +589,7 @@ pub fn print_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
             writeln!(formatter)?;
         }
         drop(formatter);
-        writeln!(
-            ui.hint_default(),
-            "Try fetching from the remote, then make the bookmark point to where you want it to \
-             be, and push again.",
-        )?;
+        writeln!(ui.hint_default(), "{rejected_hint}")?;
     }
     if !stats.remote_rejected.is_empty() {
         writeln!(
@@ -584,10 +606,7 @@ pub fn print_push_stats(ui: &Ui, stats: &GitPushStats) -> io::Result<()> {
             writeln!(formatter)?;
         }
         drop(formatter);
-        writeln!(
-            ui.hint_default(),
-            "Try checking if you have permission to push to all the bookmarks."
-        )?;
+        writeln!(ui.hint_default(), "{remote_rejected_hint}")?;
     }
     if !stats.unexported_bookmarks.is_empty() {
         writeln!(

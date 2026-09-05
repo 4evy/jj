@@ -89,6 +89,10 @@ None
   remote. The fetched commits become visible without creating bookmarks or
   remote-tracking refs.
 
+* `jj git ref push` can push one revision to a fully qualified Git ref. Each
+  push must be unconditional, require the ref to be absent, or require it to
+  point to an expected object ID.
+
 ### Fixed bugs
 
 * [The default `immutable_heads()` set](docs/config.md#set-of-immutable-commits)

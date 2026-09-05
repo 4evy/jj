@@ -13,11 +13,14 @@
 // limitations under the License.
 
 mod fetch;
+mod push;
 
 use clap::Subcommand;
 
 use self::fetch::GitRefFetchArgs;
 use self::fetch::cmd_git_ref_fetch;
+use self::push::GitRefPushArgs;
+use self::push::cmd_git_ref_push;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
@@ -26,6 +29,7 @@ use crate::ui::Ui;
 #[derive(Subcommand, Clone, Debug)]
 pub enum RefCommand {
     Fetch(GitRefFetchArgs),
+    Push(GitRefPushArgs),
 }
 
 pub async fn cmd_git_ref(
@@ -35,5 +39,6 @@ pub async fn cmd_git_ref(
 ) -> Result<(), CommandError> {
     match subcommand {
         RefCommand::Fetch(args) => cmd_git_ref_fetch(ui, command, args).await,
+        RefCommand::Push(args) => cmd_git_ref_push(ui, command, args).await,
     }
 }

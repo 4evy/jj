@@ -63,6 +63,357 @@ fn set_up(test_env: &TestEnvironment) {
         .success();
 }
 
+fn open_origin_git_repo(test_env: &TestEnvironment) -> gix::Repository {
+    let origin_dir = test_env.work_dir("origin");
+    gix::open(git_repo_dir_for_jj_repo(&origin_dir)).unwrap()
+}
+
+#[test]
+fn test_git_ref_push_safety_modes() {
+    let test_env = TestEnvironment::default();
+    set_up(&test_env);
+    let work_dir = test_env.work_dir("local");
+    work_dir.run_jj(["new", "-m=review 1"]).success();
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--expected-absent",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Pushed vruxwmqv fd099254 (empty) review 1 to refs/for/main@origin
+    [EOF]
+    ");
+    let git_repo = open_origin_git_repo(&test_env);
+    let first_target = git_repo
+        .find_reference("refs/for/main")
+        .unwrap()
+        .id()
+        .detach();
+
+    work_dir.run_jj(["new", "-m=review 2"]).success();
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--expected-absent",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Warning: The following references unexpectedly moved on the remote:
+      refs/for/main (reason: stale info)
+    Hint: Retry with `--expected-at=<OBJECT_ID>` set to the remote ref's current object ID, or use `--force` to push unconditionally.
+    Error: Failed to push Git ref refs/for/main
+    [EOF]
+    [exit status: 1]
+    ");
+    assert_eq!(
+        git_repo
+            .find_reference("refs/for/main")
+            .unwrap()
+            .id()
+            .detach(),
+        first_target
+    );
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        &format!("--expected-at={first_target}"),
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Pushed znkkpsqq ca23a1a1 (empty) review 2 to refs/for/main@origin
+    [EOF]
+    ");
+    let second_target = git_repo
+        .find_reference("refs/for/main")
+        .unwrap()
+        .id()
+        .detach();
+    assert_ne!(first_target, second_target);
+
+    // `--force` must update the existing ref without an absent-target lease.
+    work_dir.run_jj(["new", "-m=review 3"]).success();
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "push",
+            "--remote=origin",
+            "--force",
+            "@",
+            "refs/for/main",
+        ])
+        .success();
+    let third_target = work_dir
+        .run_jj(["log", "--no-graph", "-r=@", "-T=commit_id"])
+        .success()
+        .stdout
+        .raw()
+        .to_owned();
+    assert_eq!(
+        git_repo
+            .find_reference("refs/for/main")
+            .unwrap()
+            .id()
+            .to_string(),
+        third_target
+    );
+}
+
+#[test]
+fn test_git_ref_push_up_to_date() {
+    let test_env = TestEnvironment::default();
+    set_up(&test_env);
+    let work_dir = test_env.work_dir("local");
+    work_dir.run_jj(["new", "-m=review"]).success();
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "push",
+            "--remote=origin",
+            "--expected-absent",
+            "@",
+            "refs/for/main",
+        ])
+        .success();
+
+    let git_repo = open_origin_git_repo(&test_env);
+    let target = git_repo
+        .find_reference("refs/for/main")
+        .unwrap()
+        .id()
+        .detach();
+    let stale_target = git_repo
+        .find_reference("refs/heads/bookmark1")
+        .unwrap()
+        .id()
+        .detach();
+    assert_ne!(target, stale_target);
+
+    // Git reports an update to the current target as "up to date" without
+    // checking the lease. The raw ref command must still enforce the explicit
+    // expectation rather than falsely reporting that it pushed the ref.
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--expected-absent",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output.normalize_stderr_with(|stderr| {
+        stderr.replace(&target.to_string(), "$TARGET")
+    }), @r"
+    ------- stderr -------
+    Error: Git ref refs/for/main@origin already points to $TARGET, but it was expected to not exist
+    [EOF]
+    [exit status: 1]
+    ");
+
+    // A stale expected target must also fail if the destination already points
+    // to the revision being pushed.
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        &format!("--expected-at={stale_target}"),
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output.normalize_stderr_with(|stderr| {
+        stderr
+            .replace(&target.to_string(), "$TARGET")
+            .replace(&stale_target.to_string(), "$STALE_TARGET")
+    }), @r"
+    ------- stderr -------
+    Error: Git ref refs/for/main@origin already points to $TARGET, but it was expected to point to $STALE_TARGET
+    [EOF]
+    [exit status: 1]
+    ");
+
+    // An up-to-date push is valid if the remote target matches the lease.
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        &format!("--expected-at={target}"),
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Git ref refs/for/main@origin already points to vruxwmqv 03ae9d30 (empty) review
+    [EOF]
+    ");
+
+    // An unconditional up-to-date push is also a valid no-op.
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--force",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Git ref refs/for/main@origin already points to vruxwmqv 03ae9d30 (empty) review
+    [EOF]
+    ");
+}
+
+#[test]
+fn test_git_ref_push_validation() {
+    let test_env = TestEnvironment::default();
+    set_up(&test_env);
+    let work_dir = test_env.work_dir("local");
+    work_dir.run_jj(["new", "-m=review"]).success();
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--force",
+        "@",
+        "for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Error: Invalid fully qualified Git ref name: for/main
+    [EOF]
+    [exit status: 1]
+    ");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    error: the following required arguments were not provided:
+      <--force|--expected-at <OBJECT_ID>|--expected-absent>
+
+    Usage: jj git ref push --remote <REMOTE> <--force|--expected-at <OBJECT_ID>|--expected-absent> <REVISION> <REF>
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
+    ");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--expected-at=not-an-object-id",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    error: invalid value 'not-an-object-id' for '--expected-at <OBJECT_ID>': A hash sized 16 hexadecimal characters is invalid
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
+    ");
+
+    let sha256_id = "0".repeat(64);
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        &format!("--expected-at={sha256_id}"),
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Error: Git object ID for --expected-at uses sha256, but this repository uses sha1
+    [EOF]
+    [exit status: 1]
+    ");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--force",
+        "--expected-absent",
+        "@",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    error: the argument '--force' cannot be used with '--expected-absent'
+
+    Usage: jj git ref push --remote <REMOTE> <--force|--expected-at <OBJECT_ID>|--expected-absent> <REVISION> <REF>
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
+    ");
+
+    let output = work_dir.run_jj([
+        "git",
+        "ref",
+        "push",
+        "--remote=origin",
+        "--force",
+        "root()",
+        "refs/for/main",
+    ]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Error: Cannot push the root commit to Git
+    [EOF]
+    [exit status: 1]
+    ");
+}
+
+#[test]
+fn test_git_ref_push_requires_git_backend() {
+    let test_env = TestEnvironment::default();
+    test_env
+        .run_jj_in(".", ["debug", "init-simple", "repo"])
+        .success();
+    let work_dir = test_env.work_dir("repo");
+
+    let output = work_dir.run_jj(["git", "ref", "push", "--force", "@", "refs/for/main"]);
+    insta::assert_snapshot!(output, @r"
+    ------- stderr -------
+    Error: The repo is not backed by a Git repo
+    [EOF]
+    [exit status: 1]
+    ");
+}
+
 #[test]
 fn test_git_push_nothing() {
     let test_env = TestEnvironment::default();
