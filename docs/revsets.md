@@ -333,6 +333,11 @@ revsets (expressions) as arguments.
   targets of untracked remote tags. Supports the same optional arguments as
   `remote_tags()`.
 
+* `fetched_git_refs([name_pattern], [[remote=]remote_pattern])`: Targets of raw
+  Git refs fetched with `jj git ref fetch`. `name_pattern` matches the complete
+  Git ref name, such as `refs/pull/*/head`. See `remote_bookmarks()` for the
+  optional remote-pattern argument.
+
 * `visible_heads()`: All visible heads (same as `heads(all())` if no hidden
   revisions are mentioned).
 

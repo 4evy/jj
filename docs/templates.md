@@ -273,6 +273,9 @@ This type cannot be printed. The following methods are defined.
   commit.
 * `.remote_bookmarks() -> List<CommitRef>`: All remote bookmarks pointing to the
   commit.
+* `.fetched_git_refs() -> List<CommitRef>`: Raw Git refs fetched with `jj git
+  ref fetch` that point to the commit. The ref's `.name()` is its complete Git
+  ref name and `.remote()` is the configured Git remote.
 * `.tags() -> List<CommitRef>`: Local and remote tags pointing to the commit. A
   tracked remote tag will be included only if its target is different from the
   local one.
