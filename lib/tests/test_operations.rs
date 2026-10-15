@@ -641,22 +641,34 @@ fn test_resolve_op_id() -> TestResult {
     let mut operations = Vec::new();
     // The actual value of `i` doesn't matter, we just need to make sure we end
     // up with hashes with ambiguous prefixes.
-    for i in (1..5).chain([10, 24, 9]) {
+    for i in 1..=18 {
         let tx = repo.start_transaction();
         let repo = tx.commit(format!("transaction {i}")).block_on()?;
         operations.push(repo.operation().clone());
     }
-    // "b" is ambiguous (operations[2] and operations[5])
-    // "0" is ambiguous with the root operation (operations[6])
+    // "b" is ambiguous (operations[2] and operations[10]).
+    // "0" is ambiguous with the root operation (operations[16] and
+    // operations[17]).
     insta::assert_debug_snapshot!(operations.iter().map(|op| op.id().hex()).collect_vec(), @r#"
     [
-        "33d54aefeb762fec7d849fba6cdb19e4f571f9b0a14445c9ab764d800d52c7abbe9d6bb8a152a6e2b02514de2ca769038c8e3ec0093d254369d1c138eaf5b02a",
-        "13f64f9b2c7a8a882f3e5e03885cdc0cb64c8bc40e6f2b6f188c84a4ac49f9e6f1e49e5b3a1c627ef8c077184ea870e532a06554c9e9783bf78338a5e4c0b781",
-        "b1e7aa2b8e7d6015d7f281baadb1f34bdbb8841a762a7e164f7849973ace8d0b8f87309416ccc81c0459373846022c24a93486f8a4ed2ff0ec4221b587ca28f2",
-        "c9cc85d1bf80aa756583a1ba708961f94643277ae716d913b17152e80b42f1886afd1127ec8e34fc15507040ec5a643e32d4b727ea70417ba2fbb29e2e225f88",
-        "94cfe4b05e25e4329dcd2494e0e4a4e4a6608c65ccc9d0a186c81d3bf8f5606ec7b31cd9333dcacbc658ebe0df5e51f91d2d52b58a5806e1273d31c083e4acd6",
-        "b527c15f0261c2520ffe84056f8eb3a216a9994b7117fe17b996f7203bb3cebeace369461f481c412f9969a91490dc5af629efe109c3433afa0c6d0b26fdbc17",
-        "007480c57328c8532149d66fb2a44b6e4ff79e44362e0c9578f82c4147c8cbebf84ad08d9a1f661814902cef89bc76d90628cb606f2431e45f74493d5e1e0cbd",
+        "f285310e04b2e31a86c42ce9f71d01f3ba3a21b3750ae3211b72820b8afcdff8055868dd3ef3b58c97c6d9f174e3c59f2c9a7652f7dde1170a4411ac27a0bace",
+        "cb0360327e344fd5474df797d560279a6385bb4c686b11d3f57a6745c94378588cf59bca7cd44bea8a9f2e1c4834a92baecb460d81f015ecedde5bec9aa7cb0e",
+        "b8809bb2a15e5cad4c0f3bdf7bba61f4b16fe9ca35b66b639c96a9a3b61628949d1b86c552e9d722a8f4d2cc763b61318b6252e32c7de5014b30c8b0f91ed375",
+        "826bbc58ef72feefc1d12413cb46e6abb823f95779ed89c2eb7604b98e08384de808c2340605b2cd9e5fab51a084152026eee55bf648aa5f2318d9f45d33ddb5",
+        "d1557ed9b0d9d97ab900ddfc5853b90d048738f88ff951b2725f07886b70c1d87848e5e9815492c3239c1243667dfff3780f415be40081cd3f03a3c39b42c50e",
+        "7690736fcc1eaf5de31d42972b2069572eb4150ee9672ddf7ac2136cffda0e18d01dc0b2e8ce69bce619d14acb4209138ee8320ca94344dfec0afd0b92fdf975",
+        "4b25f76bd3bbb0dbc88e91c9892d9e32d46c0ed64981130cd619b49d61d64727862c6a1aac10d4c647fe5cca3a1e65f6c6eb0910e362eca119911b652bdc5896",
+        "701c7c5c147e11438ff10a340bb4032eb3900df351b190ac5c49a9cd1bcfa7cb0c96fd255aa13002af10002c3278dd994569bd78a7473f29ed961c6257a2ab7f",
+        "dab8a8eef2ee069a06871dd01a4ae193b6fbdaee9999af81d04a950eabef8d7087f67794710c065f1bd58d7016a3a1b17a34b9c1ecd6accb95c1f79d75227d60",
+        "a7fd29b88f3e285dcbde24fb3294b9b78ae3cb58c042814003e7bb8f0ccfc552c8e1532e921892fbb1f111d53dcb9800d84250e715ec34ee0e919540aa72ed9f",
+        "b33328f46042359b69d6080ae2190b34dd6c603c93e3f9df56779c97f6822ce51111b1e112727a95caee839867f1360425d3392fe5b053c240d6865916e72019",
+        "7bc36dea414d35cbad68c3346485dc0d1db503b66bbd3a59c48bae27e0bf4031cc59b5d6376e65ea7b5c230a7059a8f5251f135105d9a2355e2c87f72d47cdbb",
+        "f7528a3d0f199d82724ab1249a97e093b1dd73cb7927e96889b621bbfd770742f83e7ca0194314bc2369e82f4c839a5053f5517e0f2d9ff7cdf291840f85158b",
+        "e5ad23d90e5bc9f161adbd49cad983b229cf0618c112ac619efa46a2af6fb060014925af4c9d8db0239a1fe0b1de05a63585dbf883cbcaa144abfdd29826987f",
+        "5e4620aab9f3373a9b6414a85c6299b194063538a7c8f4b9694980015a0f9aa23cc0143bd964b6cc0c043397c1a3766132d8f4347ac9edc1c5d9d917b84aa7b2",
+        "5de0babb6aeb4bfbaf2ee523a369c756f34bb19f4dad4b7c0033bff855ae85d13123b7da48bb8bb4ddd8d73898b9c6f4587309e19acc164bca959d1a0521b8c2",
+        "097cf398cf47f9b5c713f5e87e5c97d6340f22cffd78b2cfa4163f59e52eeb540ecc9c77fdea1c1b221e678e767a45f98d37945df77b208f8b3a8a9c35af326d",
+        "0f0e64833d12d8779f4e789fc1b61cad6299a5ea42054693972aad4fed124508826b228c1c87d454314afb854c6f37ef845b3cb2f20b6cb432b1f616d1deb5be",
     ]
     "#);
 
@@ -693,22 +705,18 @@ fn test_resolve_op_id() -> TestResult {
     // Virtual root id
     let root_operation = loader.root_operation().block_on();
     assert_eq!(resolve(&root_operation.id().hex())?, root_operation);
-    assert_eq!(resolve("b5")?, operations[5]);
-    // "0" is ambiguous with the root operation and operations[6]
+    assert_eq!(resolve("b8")?, operations[2]);
+    // "0" is ambiguous with the root operation and operations[16..=17].
     assert_matches!(
         resolve("0"),
         Err(OpsetEvaluationError::OpsetResolution(
             OpsetResolutionError::AmbiguousIdPrefix(_)
         ))
     );
-    assert_matches!(
-        resolve("00"),
-        Err(OpsetEvaluationError::OpsetResolution(
-            OpsetResolutionError::AmbiguousIdPrefix(_)
-        ))
-    );
+    assert_eq!(resolve("00")?, root_operation);
     assert_eq!(resolve("000")?, root_operation);
-    assert_eq!(resolve("007")?, operations[6]);
+    assert_eq!(resolve("09")?, operations[16]);
+    assert_eq!(resolve("0f")?, operations[17]);
     Ok(())
 }
 

@@ -183,6 +183,9 @@ pub struct View {
     pub remote_views: BTreeMap<RemoteNameBuf, RemoteView>,
     /// Git ref names and targets.
     pub git_refs: BTreeMap<GitRefNameBuf, RefTarget>,
+    /// User-requested Git refs fetched from remotes outside normal bookmark
+    /// import
+    pub fetched_git_refs: BTreeMap<RemoteNameBuf, BTreeMap<GitRefNameBuf, RefTarget>>,
     /// The commit each workspace's Git HEAD points to, keyed by workspace name.
     // TODO: Do we want to store the current bookmark name too?
     pub git_heads: BTreeMap<WorkspaceNameBuf, RefTarget>,
@@ -202,6 +205,7 @@ impl View {
             local_tags: BTreeMap::new(),
             remote_views: BTreeMap::new(),
             git_refs: BTreeMap::new(),
+            fetched_git_refs: BTreeMap::new(),
             git_heads: BTreeMap::new(),
             wc_commit_ids: BTreeMap::new(),
         }

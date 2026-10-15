@@ -1535,7 +1535,7 @@ fn test_converge_two_divergent_commits_with_unrelated_commit_in_between() -> Tes
     ");
 
     insta::assert_snapshot!(work_dir.run_jj(["op", "show"]).success(), @"
-    23ae9388893c test-username@host.example.com default@ 2001-02-03 04:05:21.000 +07:00 - 2001-02-03 04:05:21.000 +07:00
+    9fec0d994bff test-username@host.example.com default@ 2001-02-03 04:05:21.000 +07:00 - 2001-02-03 04:05:21.000 +07:00
     converge qpvuntsmwlqt with 2 predecessors
     args: jj converge
 
