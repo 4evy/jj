@@ -1243,9 +1243,7 @@ fn pinned_commit_ids(view: &View) -> Vec<CommitId> {
     itertools::chain!(
         view.local_bookmarks().map(|(_, target)| target),
         view.local_tags().map(|(_, target)| target),
-        view.fetched_git_refs()
-            .values()
-            .flat_map(|refs| refs.values())
+        view.all_fetched_git_refs().map(|(_, target)| target)
     )
     .flat_map(|target| target.present_adds())
     .cloned()
