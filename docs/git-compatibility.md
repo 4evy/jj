@@ -131,9 +131,15 @@ your choice by adding `--remote <remote name>` to the `jj git clone` command.
 ## Fetching and pushing refs that are not branches or tags
 
 Use `jj git ref fetch --remote <remote> <ref-or-commit-id>...` to fetch raw Git
-refs, such as GitHub pull request refs, or full Git commit IDs. The fetched
-commits become visible without names. The command does not create bookmarks or
-remote-tracking refs.
+refs, such as GitHub pull request refs, or full Git commit IDs. Fetched refs are
+stored in Jujutsu's operation history without creating a Git
+remote-tracking branch, so they survive ordinary `jj git fetch` commands and
+can be undone or restored like other Jujutsu state.
+
+For example, after `jj git ref fetch --remote origin refs/pull/123/head`, the
+commit can be selected as `refs/pull/123/head@origin` or with
+`fetched_git_refs('refs/pull/123/head', remote='origin')`. Use `jj git ref list`
+and `jj git ref forget` to inspect and remove fetched refs.
 
 Use `jj git ref push` to push one revision to an application-specific ref such
 as Gerrit's `refs/for/main`. Unlike `jj git push`, this low-level command does
