@@ -17,9 +17,9 @@ use std::io::Write as _;
 use clap_complete::ArgValueCandidates;
 use itertools::Itertools as _;
 use jj_lib::object_id::ObjectId as _;
-use jj_lib::ref_name::GitRefName;
-use jj_lib::ref_name::RemoteName;
+use jj_lib::ref_name::RemoteNameBuf;
 
+use super::canonicalize_git_ref_name;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::complete;
@@ -29,9 +29,9 @@ use crate::ui::Ui;
 #[derive(clap::Args, Clone, Debug)]
 pub struct GitRefListArgs {
     /// Show refs fetched from this remote
-    #[arg(long = "remote", value_name = "REMOTE")]
+    #[arg(long, value_name = "REMOTE")]
     #[arg(add = ArgValueCandidates::new(complete::git_remotes))]
-    remote: Option<String>,
+    remote: Option<RemoteNameBuf>,
 
     /// Show this fetched ref
     #[arg(value_name = "REF")]
@@ -45,15 +45,19 @@ pub async fn cmd_git_ref_list(
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
     let view = workspace_command.repo().view();
-    let remote_filter = args.remote.as_deref().map(RemoteName::new);
-    let ref_filter = args.ref_name.as_deref().map(GitRefName::new);
+    let remote_filter = args.remote.as_deref();
+    let ref_filter = args
+        .ref_name
+        .as_deref()
+        .map(canonicalize_git_ref_name)
+        .transpose()?;
     let mut matched = 0;
     for (remote_name, refs) in view.fetched_git_refs() {
         if remote_filter.is_some_and(|remote| remote != remote_name) {
             continue;
         }
         for (ref_name, target) in refs {
-            if ref_filter.is_some_and(|name| name != ref_name) {
+            if ref_filter.as_ref().is_some_and(|name| name != ref_name) {
                 continue;
             }
             matched += 1;
