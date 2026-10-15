@@ -258,6 +258,10 @@ published.
 * `jj git import` in non-colocated repositories no longer imports commits from a
   detached Git HEAD branch.
 
+* `git.sign-on-push` is now a revset selecting commits to sign instead of a
+  boolean. The default is `none()`. Existing `true` values are migrated to
+  `~signed() & mine()` and `false` values to `none()`.
+
 ### Deprecations
 
 None
@@ -308,6 +312,9 @@ None
 * `jj arrange` now scrolls the viewport to keep the selected commit visible
   when the commit stack is taller than the terminal.
   [#9033](https://github.com/jj-vcs/jj/issues/9033).
+
+* `jj git push` now warns when `git.sign-on-push` selects immutable commits
+  instead of silently leaving them unsigned.
 
 * The default pager flags now include `-K` (`--quit-on-intr`), so pressing
   Ctrl+C in `less` exits cleanly instead of leaving the terminal in a

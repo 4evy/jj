@@ -14,7 +14,6 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::future;
 use std::io;
 use std::io::Write as _;
 use std::iter;
@@ -564,19 +563,19 @@ pub async fn cmd_git_push(
         return Ok(());
     }
 
-    if !args.dry_run && tx.settings().get_bool("git.sign-on-push")? {
-        let to_push_exprs = by_remote
-            .iter()
-            .map(|(remote, ref_updates)| ready_to_push_revset_expression(&tx, remote, ref_updates))
-            .collect_vec();
-
-        let (signed_by_remote, num_signed) = sign_commits_before_push(
-            ui,
-            &mut tx,
-            UserRevsetExpression::union_all(&to_push_exprs),
-            by_remote,
-        )
-        .await?;
+    let sign_on_push_revset = tx.settings().get_string("git.sign-on-push")?;
+    let mut commits_to_sign = tx
+        .base_workspace_helper()
+        .parse_revset(ui, &RevisionArg::from(sign_on_push_revset))?;
+    let to_push_exprs = by_remote
+        .iter()
+        .map(|(remote, ref_updates)| ready_to_push_revset_expression(&tx, remote, ref_updates))
+        .collect_vec();
+    commits_to_sign.intersect_with(&UserRevsetExpression::union_all(&to_push_exprs));
+    let commits_to_sign = commits_to_sign.resolve()?;
+    if !args.dry_run {
+        let (signed_by_remote, num_signed) =
+            sign_commits_before_push(ui, &mut tx, commits_to_sign, by_remote).await?;
         by_remote = signed_by_remote;
 
         // Signing rewrites the commits that are about to be pushed, so
@@ -941,29 +940,26 @@ fn ready_to_push_revset_expression(
 
 /// Signs commits before pushing.
 ///
-/// Warns about commits that need a signature but are immutable.
+/// Warns about selected commits that are immutable and therefore cannot be
+/// rewritten.
 ///
 /// Returns the updated list of bookmark names and corresponding
 /// [`BookmarkPushUpdate`]s, and the number of signed commits.
 async fn sign_commits_before_push<'a>(
     ui: &Ui,
     tx: &mut WorkspaceCommandTransaction<'_>,
-    commits_to_push: Arc<UserRevsetExpression>,
+    commits_to_sign: Arc<ResolvedRevsetExpression>,
     by_remote: Vec<(&'a RemoteName, GitPushRefTargets)>,
 ) -> Result<(Vec<(&'a RemoteName, GitPushRefTargets)>, usize), CommandError> {
-    let mut sign_settings = tx.settings().sign_settings();
-    sign_settings.behavior = SignBehavior::Own;
-    // TODO: make filter condition configurable by revset?
-    let needs_signing = |commit: &Commit| {
-        future::ready(!commit.is_signed() && sign_settings.should_sign(commit.store_commit()))
-    };
-
     let workspace_helper = tx.base_workspace_helper();
-    let immutable = workspace_helper.env().immutable_expression();
-    let skipped: Vec<Commit> = workspace_helper
-        .attach_revset_evaluator(commits_to_push.intersection(&immutable))
-        .evaluate_to_commits()?
-        .try_filter(needs_signing)
+    let immutable = workspace_helper
+        .attach_revset_evaluator(workspace_helper.env().immutable_expression())
+        .resolve()?;
+    let skipped: Vec<Commit> = commits_to_sign
+        .intersection(&immutable)
+        .evaluate(tx.base_repo().as_ref())?
+        .stream()
+        .commits(tx.base_repo().store())
         .take(11)
         .try_collect()
         .await?;
@@ -985,11 +981,10 @@ async fn sign_commits_before_push<'a>(
         )?;
     }
 
-    let commit_ids: IndexSet<CommitId> = workspace_helper
-        .attach_revset_evaluator(commits_to_push.minus(&immutable))
-        .evaluate_to_commits()?
-        .try_filter(needs_signing)
-        .map_ok(|commit| commit.id().clone())
+    let commit_ids: IndexSet<CommitId> = commits_to_sign
+        .minus(&immutable)
+        .evaluate(tx.base_repo().as_ref())?
+        .stream()
         .try_collect()
         .await?;
     if commit_ids.is_empty() {
@@ -1015,7 +1010,7 @@ async fn sign_commits_before_push<'a>(
                     if commit_ids.contains(&old_commit_id) {
                         let commit = rewriter
                             .reparent()
-                            .set_sign_behavior(sign_settings.behavior)
+                            .set_sign_behavior(SignBehavior::Force)
                             .write()
                             .await?;
                         old_to_new_commits_map.insert(old_commit_id, commit.id().clone());

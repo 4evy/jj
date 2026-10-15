@@ -3078,7 +3078,7 @@ fn test_git_push_sign_on_push() {
         r#"
     signing.backend = "test"
     signing.key = "impeccable"
-    git.sign-on-push = true
+    git.sign-on-push = "~signed() & mine()"
     "#,
     );
     let output = work_dir.run_jj(["git", "push", "--dry-run"]);
@@ -3250,7 +3250,7 @@ fn test_git_push_sign_on_push_separate_transaction() -> TestResult {
         r#"
     signing.backend = "test"
     signing.key = "impeccable"
-    git.sign-on-push = true
+    git.sign-on-push = "~signed() & mine()"
     "#,
     );
 
@@ -3332,7 +3332,7 @@ fn test_git_push_sign_on_push_separate_transaction_change_bookmark() -> TestResu
         r#"
     signing.backend = "test"
     signing.key = "impeccable"
-    git.sign-on-push = true
+    git.sign-on-push = "~signed() & mine()"
     "#,
     );
 
