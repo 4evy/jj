@@ -14,19 +14,13 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io;
 
 use bstr::ByteSlice as _;
-use crossterm::ExecutableCommand as _;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use crossterm::event::{self};
-use crossterm::terminal::EnterAlternateScreen;
-use crossterm::terminal::LeaveAlternateScreen;
-use crossterm::terminal::disable_raw_mode;
-use crossterm::terminal::enable_raw_mode;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::future::try_join_all;
@@ -47,11 +41,6 @@ use ratatui::layout::Direction;
 use ratatui::layout::Layout;
 use ratatui::layout::Offset;
 use ratatui::layout::Rect;
-use ratatui::prelude::CrosstermBackend;
-use ratatui::style::Color;
-use ratatui::style::Style;
-use ratatui::text::Line;
-use ratatui::text::Span;
 use ratatui::text::Text;
 use ratatui::widgets::Widget as _;
 use renderdag::Ancestor;
@@ -68,6 +57,7 @@ use crate::command_error::user_error;
 use crate::complete;
 use crate::formatter::FormatterExt as _;
 use crate::templater::TemplateRenderer;
+use crate::tui_util;
 use crate::ui::Ui;
 
 /// Interactively arrange the commit graph.
@@ -136,12 +126,6 @@ pub(crate) async fn cmd_arrange(
         return Ok(());
     }
 
-    // Set up the terminal
-    io::stdout().execute(EnterAlternateScreen)?;
-    enable_raw_mode()?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
-    terminal.clear()?;
-
     let mut state = State::new(commits, external_children).await?;
     state.update_commit_order();
 
@@ -152,11 +136,7 @@ pub(crate) async fn cmd_arrange(
         .parse_commit_template(ui, &template_string)?
         .labeled(["commit"]);
 
-    let result = run_tui(ui, &mut terminal, template, state);
-
-    // Restore the terminal
-    disable_raw_mode()?;
-    io::stdout().execute(LeaveAlternateScreen)?;
+    let result = tui_util::with_terminal(|terminal| run_tui(ui, terminal, template, state));
 
     if let Some(new_state) = result? {
         let mut tx = workspace_command.start_transaction();
@@ -486,15 +466,7 @@ fn run_tui<B: ratatui::backend::Backend>(
         ("c", "confirm"),
         ("q", "quit"),
     ];
-    let mut help_spans = Vec::new();
-    for (i, (key, desc)) in help_items.iter().enumerate() {
-        if i > 0 {
-            help_spans.push(Span::raw(" • "));
-        }
-        help_spans.push(Span::styled(*key, Style::default().fg(Color::Magenta)));
-        help_spans.push(Span::raw(format!(" {desc}")));
-    }
-    let help_line = Line::from(help_spans);
+    let help_line = tui_util::key_help_line(&help_items);
 
     let render_commit = |commit: &Commit, is_context_node: bool| {
         let mut text_lines = vec![];
