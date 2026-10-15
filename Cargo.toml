@@ -107,6 +107,7 @@ regex = "1.12.3"
 rpassword = "7.5.4"
 rustix = { version = "1.1.4", features = ["fs"] }
 rustversion = "1.0.22"
+rustyline = { version = "18.0.1", default-features = false }
 same-file = "1.0.6"
 sapling-renderdag = "0.1.0"
 sapling-streampager = "0.12.0"

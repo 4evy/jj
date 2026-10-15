@@ -46,6 +46,7 @@ use ratatui::widgets::List;
 use ratatui::widgets::ListItem;
 use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
+use rustyline::error::ReadlineError;
 use tracing::instrument;
 
 use super::metaedit;
@@ -568,11 +569,32 @@ fn prompt_timestamp(ui: &Ui) -> Result<Timestamp, CommandError> {
         ui.hint_default(),
         "Enter a local date and time, such as `yesterday 5pm`, or an exact timestamp."
     )?;
-    Ok(
-        ui.prompt_choice_with("Timestamp [now]", Some("now"), |input| {
-            parse_datetime_expression(input, now)
-        })?,
-    )
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(
+            ui.prompt_choice_with("Timestamp [now]", Some("now"), |input| {
+                parse_datetime_expression(input, now)
+            })?,
+        );
+    }
+
+    let mut editor = rustyline::DefaultEditor::new().map_err(internal_error)?;
+    loop {
+        let input = editor
+            .readline("Timestamp [now]: ")
+            .map_err(|error| match error {
+                ReadlineError::Eof | ReadlineError::Interrupted => {
+                    user_error("Timestamp input canceled")
+                }
+                ReadlineError::Io(error) => error.into(),
+                error => internal_error(error),
+            })?;
+        let input = input.trim();
+        let input = if input.is_empty() { "now" } else { input };
+        match parse_datetime_expression(input, now) {
+            Ok(timestamp) => return Ok(timestamp),
+            Err(error) => writeln!(ui.warning_no_heading(), "{error}")?,
+        }
+    }
 }
 
 fn parse_timestamp_arg(input: &str) -> Result<Timestamp, String> {
