@@ -595,7 +595,7 @@ jj currently does not support partial clones. To use jj with this repository, tr
                 GitFetchError::RefExpansion(err) => err.into(),
                 GitFetchError::RejectedUpdates(_)
                 | GitFetchError::FailedToPrune(_)
-                | GitFetchError::TemporaryRefCleanup { .. }
+                | GitFetchError::TemporaryRefsCleanup { .. }
                 | GitFetchError::Subprocess(_)
                 | GitFetchError::ShallowCommits(_)
                 | GitFetchError::RefreshShallowState(_)
