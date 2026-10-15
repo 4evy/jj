@@ -596,9 +596,8 @@ impl View {
         self.data
             .fetched_git_refs
             .get(remote_name)
-            .map(|refs| refs.iter().map(|(name, target)| (name.as_ref(), target)))
             .into_iter()
-            .flatten()
+            .flat_map(|refs| refs.iter().map(|(name, target)| (name.as_ref(), target)))
     }
 
     pub fn fetched_git_refs_matching(
