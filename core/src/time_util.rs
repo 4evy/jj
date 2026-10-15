@@ -72,6 +72,15 @@ pub enum DatePatternParseError {
     ParseError(#[from] DateError),
 }
 
+/// Error occurred while parsing a date-time expression.
+#[derive(Debug, Error)]
+#[error("Couldn't understand `{input}` as a date and time")]
+pub struct DateTimeExpressionParseError {
+    input: String,
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+
 /// Represents an range of dates that may be matched against.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DatePattern {
@@ -130,6 +139,62 @@ pub fn parse_datetime(s: &str) -> chrono::ParseResult<Timestamp> {
     Ok(Timestamp::from_datetime(
         DateTime::parse_from_rfc2822(s).or_else(|_| DateTime::parse_from_rfc3339(s))?,
     ))
+}
+
+/// Parses an exact or relative date-time expression relative to `now`.
+///
+/// Expressions without an explicit time zone are interpreted in `now`'s time
+/// zone. For example, this accepts `now`, `yesterday 5pm`, and RFC 3339
+/// timestamps.
+pub fn parse_datetime_expression<Tz: TimeZone<Offset = FixedOffset>>(
+    s: &str,
+    now: DateTime<Tz>,
+) -> Result<Timestamp, DateTimeExpressionParseError> {
+    let s = s.trim();
+    if let Ok(datetime) = DateTime::parse_from_rfc2822(s) {
+        return Ok(Timestamp::from_datetime(datetime));
+    }
+    for result in [
+        DateTime::parse_from_rfc3339(s),
+        DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f %:z"),
+        DateTime::parse_from_str(s, "%Y-%m-%d %H:%M %:z"),
+    ] {
+        match result {
+            Ok(datetime) => return Ok(Timestamp::from_datetime(datetime)),
+            // Do not let the relative parser normalize an invalid exact date
+            Err(source)
+                if matches!(
+                    source.kind(),
+                    chrono::format::ParseErrorKind::OutOfRange
+                        | chrono::format::ParseErrorKind::Impossible
+                ) =>
+            {
+                return Err(DateTimeExpressionParseError {
+                    input: s.to_owned(),
+                    source: source.into(),
+                });
+            }
+            Err(_) => {}
+        }
+    }
+    let datetime =
+        parse_date_string(s, now, Dialect::Us).map_err(|source| DateTimeExpressionParseError {
+            input: s.to_owned(),
+            source: source.into(),
+        })?;
+    // Rebuild calendar dates through Chrono so their offsets reflect local
+    // daylight-saving transitions rather than the offset at the UTC date
+    let datetime = match now.timezone().from_local_datetime(&datetime.naive_local()) {
+        chrono::LocalResult::Single(datetime) => datetime,
+        chrono::LocalResult::Ambiguous(_, _) => datetime,
+        chrono::LocalResult::None => {
+            return Err(DateTimeExpressionParseError {
+                input: s.to_owned(),
+                source: DateError::MissingTime.into(),
+            });
+        }
+    };
+    Ok(Timestamp::from_datetime(datetime))
 }
 
 #[cfg(test)]
@@ -220,5 +285,69 @@ mod tests {
         let human_readable_explicit = parse_datetime("Sun, 23 Jan 2000 01:23:45 -0800").unwrap();
         assert_eq!(timestamp, human_readable);
         assert_eq!(timestamp, human_readable_explicit);
+    }
+
+    #[test]
+    fn test_parse_datetime_expression() {
+        let now = DateTime::parse_from_rfc3339("2024-01-01T08:00:00-08:00").unwrap();
+        let parse = |expression| parse_datetime_expression(expression, now).unwrap();
+
+        assert_eq!(parse("now"), Timestamp::from_datetime(now));
+        assert_eq!(
+            parse("yesterday 5pm"),
+            parse_datetime("2023-12-31T17:00:00-08:00").unwrap()
+        );
+        assert_eq!(
+            parse("2023-03-25 01:30:45 -05:00"),
+            parse_datetime("2023-03-25T01:30:45-05:00").unwrap()
+        );
+        for (expression, expected) in [
+            ("32 hours", "2024-01-02T16:00:00-08:00"),
+            ("42 days", "2024-02-12T08:00:00-08:00"),
+            ("42 months", "2027-07-01T00:00:00-08:00"),
+            ("25 years", "2049-01-01T00:00:00-08:00"),
+            ("Sun, 23 Jan 2000 01:23:45 PST", "2000-01-23T01:23:45-08:00"),
+        ] {
+            assert_eq!(parse(expression), parse_datetime(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_parse_datetime_expression_preserves_exact_offset_and_precision() {
+        let now = DateTime::parse_from_rfc3339("2024-01-01T08:00:00-08:00").unwrap();
+        let expected = parse_datetime("2023-03-25T01:30:45.123+05:30").unwrap();
+        for expression in [
+            "2023-03-25 01:30:45.123 +05:30",
+            "2023-03-25T01:30:45.123+05:30",
+            " 2023-03-25T01:30:45.123+05:30 \n",
+        ] {
+            assert_eq!(
+                parse_datetime_expression(expression, now).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            parse_datetime_expression("2023-03-25 01:30 +05:30", now).unwrap(),
+            parse_datetime("2023-03-25T01:30:00+05:30").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_datetime_expression_rejects_invalid_input() {
+        let now = DateTime::parse_from_rfc3339("2024-01-01T08:00:00-08:00").unwrap();
+        for expression in [
+            "",
+            " \n ",
+            "not a date",
+            "2023-02-29",
+            "2024-02-30",
+            "2024-13-01",
+            "2024-01-01T12:00:00+25:00",
+        ] {
+            assert!(
+                parse_datetime_expression(expression, now).is_err(),
+                "accepted invalid input: {expression:?}"
+            );
+        }
     }
 }
