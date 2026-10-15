@@ -3107,10 +3107,10 @@ fn test_git_push_sign_on_push() {
     ------- stderr -------
     Updated signatures of 2 commits.
     Rebased 2 descendant commits.
-    Working copy  (@) now at: kmkuslsw 3d5a9465 (empty) commit which should not be signed 2
-    Parent commit (@-)      : kpqxywon 48ea83e9 (empty) commit which should not be signed 1
+    Working copy  (@) now at: kmkuslsw 046e1803 (empty) commit which should not be signed 2
+    Parent commit (@-)      : kpqxywon 17c11bbf (empty) commit which should not be signed 1
     Changes to push to origin:
-      bookmark: bookmark2 [move forward from 38a204733702 to d45e2adce0ad]
+      bookmark: bookmark2 [move forward from 38a204733702 to 4368a1bd35cd]
     [EOF]
     ");
     // Only commits which are being pushed should be signed
@@ -3133,7 +3133,7 @@ fn test_git_push_sign_on_push() {
     let output = work_dir.run_jj(["bookmark", "move", "bookmark2", "--to", "@-"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Moved 1 bookmarks to kpqxywon 48ea83e9 bookmark2* | (empty) commit which should not be signed 1
+    Moved 1 bookmarks to kpqxywon 17c11bbf bookmark2* | (empty) commit which should not be signed 1
     [EOF]
     ");
     test_env.add_config(r#"revset-aliases."immutable_heads()" = "bookmark2""#);
@@ -3141,9 +3141,9 @@ fn test_git_push_sign_on_push() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Warning: Skipped signing 1 immutable commits:
-      kpqxywon 48ea83e9 bookmark2* | (empty) commit which should not be signed 1
+      kpqxywon 17c11bbf bookmark2* | (empty) commit which should not be signed 1
     Changes to push to origin:
-      bookmark: bookmark2 [move forward from d45e2adce0ad to 48ea83e9499c]
+      bookmark: bookmark2 [move forward from 4368a1bd35cd to 17c11bbfe8d5]
     [EOF]
     ");
     let output = work_dir.run_jj(["log", "-T", template, "-r", "::"]);
@@ -3196,10 +3196,10 @@ fn test_git_push_sign_on_push() {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Updated signatures of 1 commits.
-    Working copy  (@) now at: pzsxstzt 0617b681 bookmark1* | (empty) commit to be signed 3
-    Parent commit (@-)      : kmkuslsw 5114df95 (empty) commit which should not be signed 2
+    Working copy  (@) now at: pzsxstzt e8eacab2 bookmark1* | (empty) commit to be signed 3
+    Parent commit (@-)      : kmkuslsw d210b0c7 (empty) commit which should not be signed 2
     Changes to push to origin:
-      bookmark: bookmark1 [move sideways from 9b2e76de3920 to 0617b6813c01]
+      bookmark: bookmark1 [move sideways from 9b2e76de3920 to e8eacab25c3e]
     [EOF]
     ");
     let output = work_dir.run_jj(["log", "-T", template]);
@@ -3280,10 +3280,10 @@ fn test_git_push_sign_on_push_separate_transaction() -> TestResult {
         insta::assert_snapshot!(output, @"
         ------- stderr -------
         Updated signatures of 2 commits.
-        Working copy  (@) now at: yostqsxw 46cf8967 bookmark2* | (empty) commit to be signed 2
-        Parent commit (@-)      : vruxwmqv 46da2d5c (empty) commit to be signed 1
+        Working copy  (@) now at: yostqsxw 4368a1bd bookmark2* | (empty) commit to be signed 2
+        Parent commit (@-)      : vruxwmqv f4caa8a1 (empty) commit to be signed 1
         Changes to push to origin:
-          bookmark: bookmark2 [move forward from 38a204733702 to 46cf8967724d]
+          bookmark: bookmark2 [move forward from 38a204733702 to 4368a1bd35cd]
         remote: error: hook declined to update refs/heads/bookmark2
         Warning: The remote rejected the following updates:
           refs/heads/bookmark2 (reason: hook declined)
@@ -3312,7 +3312,7 @@ fn test_git_push_sign_on_push_separate_transaction() -> TestResult {
     insta::assert_snapshot!(output, @"
     ------- stderr -------
     Changes to push to origin:
-      bookmark: bookmark2 [move forward from 38a204733702 to 46cf8967724d]
+      bookmark: bookmark2 [move forward from 38a204733702 to 4368a1bd35cd]
     [EOF]
     ");
     Ok(())
@@ -3362,10 +3362,10 @@ fn test_git_push_sign_on_push_separate_transaction_change_bookmark() -> TestResu
         ------- stderr -------
         Creating bookmark push-vruxwmqvtpmx for revision vruxwmqvtpmx
         Updated signatures of 1 commits.
-        Working copy  (@) now at: vruxwmqv 6d54c811 (empty) commit to be signed
+        Working copy  (@) now at: vruxwmqv bfce4ef5 (empty) commit to be signed
         Parent commit (@-)      : zsuskuln 38a20473 bookmark2 | (empty) description 2
         Changes to push to origin:
-          bookmark: push-vruxwmqvtpmx [add to 6d54c811b601]
+          bookmark: push-vruxwmqvtpmx [add to bfce4ef57f19]
         remote: error: hook declined to update refs/heads/push-vruxwmqvtpmx
         Warning: The remote rejected the following updates:
           refs/heads/push-vruxwmqvtpmx (reason: hook declined)
@@ -3404,10 +3404,78 @@ fn test_git_push_sign_on_push_separate_transaction_change_bookmark() -> TestResu
     ------- stderr -------
     Creating bookmark push-vruxwmqvtpmx for revision vruxwmqvtpmx
     Changes to push to origin:
-      bookmark: push-vruxwmqvtpmx [add to 6d54c811b601]
+      bookmark: push-vruxwmqvtpmx [add to bfce4ef57f19]
     [EOF]
     ");
     Ok(())
+}
+
+#[test]
+fn test_git_push_sign_on_push_preserves_redated_timestamps() {
+    let test_env = TestEnvironment::default();
+    set_up(&test_env);
+    let work_dir = test_env.work_dir("local");
+
+    work_dir
+        .run_jj(["new", "bookmark1", "-m", "redated commit"])
+        .success();
+    work_dir
+        .run_jj(["new", "-m", "unpushed descendant"])
+        .success();
+    work_dir
+        .run_jj(["bookmark", "set", "bookmark1", "-r", "@-"])
+        .success();
+    work_dir
+        .run_jj([
+            "metaedit",
+            "-r",
+            "@ | @-",
+            "--timestamp",
+            "2000-01-02T03:04:05+06:00",
+        ])
+        .success();
+
+    let timestamp_template = r#"
+    separate(" ",
+      description.first_line(),
+      author.timestamp().format("%Y-%m-%dT%H:%M:%S%:z"),
+      committer.timestamp().format("%Y-%m-%dT%H:%M:%S%:z"),
+    ) ++ "\n"
+    "#;
+    insta::assert_snapshot!(work_dir.run_jj([
+        "log",
+        "--no-graph",
+        "-r",
+        "@ | @-",
+        "-T",
+        timestamp_template,
+    ]), @"
+    unpushed descendant 2000-01-02T03:04:05+06:00 2000-01-02T03:04:05+06:00
+    redated commit 2000-01-02T03:04:05+06:00 2000-01-02T03:04:05+06:00
+    [EOF]
+    ");
+
+    test_env.add_config(
+        r#"
+    signing.backend = "test"
+    signing.key = "impeccable"
+    git.sign-on-push = "~signed() & mine()"
+    "#,
+    );
+    work_dir.run_jj(["git", "push"]).success();
+
+    insta::assert_snapshot!(work_dir.run_jj([
+        "log",
+        "--no-graph",
+        "-r",
+        "@ | @-",
+        "-T",
+        timestamp_template,
+    ]), @"
+    unpushed descendant 2000-01-02T03:04:05+06:00 2000-01-02T03:04:05+06:00
+    redated commit 2000-01-02T03:04:05+06:00 2000-01-02T03:04:05+06:00
+    [EOF]
+    ");
 }
 
 #[test]

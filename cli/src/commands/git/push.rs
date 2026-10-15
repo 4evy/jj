@@ -1007,18 +1007,20 @@ async fn sign_commits_before_push<'a>(
                             .display(&short_change_hash(old_commit.change_id()))
                             .ok();
                     }
-                    if commit_ids.contains(&old_commit_id) {
-                        let commit = rewriter
-                            .reparent()
-                            .set_sign_behavior(SignBehavior::Force)
-                            .write()
-                            .await?;
-                        old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
+                    let sign_behavior = if commit_ids.contains(&old_commit_id) {
+                        SignBehavior::Force
                     } else {
                         num_rebased_descendants += 1;
-                        let commit = rewriter.reparent().write().await?;
-                        old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
-                    }
+                        SignBehavior::Keep
+                    };
+                    // Preserve user-authored metadata, including dates set by
+                    // `jj redate`, when signing or rewriting descendants
+                    let commit = rewriter
+                        .reparent_preserving_metadata()
+                        .set_sign_behavior(sign_behavior)
+                        .write()
+                        .await?;
+                    old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
                     Ok(())
                 },
             )

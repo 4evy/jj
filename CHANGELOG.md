@@ -313,6 +313,10 @@ None
   when the commit stack is taller than the terminal.
   [#9033](https://github.com/jj-vcs/jj/issues/9033).
 
+* Signing commits during `jj git push` now preserves their author and committer
+  metadata, including timestamps set by `jj redate`. Metadata is also preserved
+  on descendants rebased by the signing rewrite.
+
 * `jj git push` now warns when `git.sign-on-push` selects immutable commits
   instead of silently leaving them unsigned.
 

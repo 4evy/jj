@@ -324,6 +324,14 @@ impl<'repo> CommitRewriter<'repo> {
             .rewrite_commit(&self.old_commit)
             .set_parents(self.new_parents)
     }
+
+    /// Reparents without changing the author or committer, including their
+    /// timestamps
+    pub fn reparent_preserving_metadata(self) -> CommitBuilder<'repo> {
+        let author = self.old_commit.author().clone();
+        let committer = self.old_commit.committer().clone();
+        self.reparent().set_author(author).set_committer(committer)
+    }
 }
 
 #[derive(Debug)]
