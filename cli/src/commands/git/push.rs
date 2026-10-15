@@ -1134,7 +1134,7 @@ async fn print_commits_ready_to_push(
     Ok(())
 }
 
-fn get_default_push_remotes(
+pub(super) fn get_default_push_remotes(
     ui: &Ui,
     workspace_command: &WorkspaceCommandHelper,
 ) -> Result<StringExpression, CommandError> {
