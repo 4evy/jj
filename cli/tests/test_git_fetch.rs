@@ -1554,6 +1554,54 @@ fn test_git_ref_fetch_undo_and_op_restore() {
 }
 
 #[test]
+fn test_git_ref_list_conflicted() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    let git_repo = add_git_remote(&test_env, &work_dir, "origin");
+    let ref_name = "refs/pull/123/head";
+    let base_id = add_commit_to_ref(&git_repo, ref_name, "base", "base");
+
+    work_dir
+        .run_jj(["git", "ref", "fetch", "--remote=origin", ref_name])
+        .success();
+    let left_id = add_commit_to_ref(&git_repo, ref_name, "left", "left");
+    work_dir
+        .run_jj(["git", "ref", "fetch", "--remote=origin", ref_name])
+        .success();
+
+    git_repo
+        .reference(
+            ref_name,
+            base_id,
+            gix::refs::transaction::PreviousValue::Any,
+            "restore base ref",
+        )
+        .unwrap();
+    let right_id = add_commit_to_ref(&git_repo, ref_name, "right", "right");
+    work_dir
+        .run_jj([
+            "git",
+            "ref",
+            "fetch",
+            "--remote=origin",
+            ref_name,
+            "--at-op=@-",
+        ])
+        .success();
+
+    let output = work_dir.run_jj(["git", "ref", "list"]);
+    let stdout = output.stdout.raw();
+    assert!(stdout.contains("origin refs/pull/123/head (conflicted):\n"));
+    assert!(stdout.contains(&format!("  + {left_id}\n")));
+    assert!(stdout.contains(&format!("  + {right_id}\n")));
+    assert!(stdout.contains(&format!("  - {base_id}\n")));
+    assert!(output.stderr.raw().contains(
+        "Hint: Some fetched Git refs have conflicts. Fetch them again or forget them to resolve."
+    ));
+}
+
+#[test]
 fn test_git_ref_fetch_keeps_rewritten_target_visible_after_undo() {
     let test_env = TestEnvironment::default();
     test_env.run_jj_in(".", ["git", "init", "repo"]).success();
