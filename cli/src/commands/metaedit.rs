@@ -19,11 +19,13 @@ use futures::TryStreamExt as _;
 use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
 use jj_lib::object_id::ObjectId as _;
+use jj_lib::settings::SignBehavior;
 use jj_lib::time_util::parse_datetime;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
 use crate::cli_util::RevisionArg;
+use crate::cli_util::WorkspaceCommandHelper;
 use crate::cli_util::print_updated_commits;
 use crate::command_error::CommandError;
 use crate::complete;
@@ -48,6 +50,13 @@ pub(crate) struct MetaeditArgs {
     #[arg(add = ArgValueCompleter::new(complete::revset_expression_mutable))]
     revisions_opt: Vec<RevisionArg>,
 
+    #[command(flatten)]
+    edit_args: CommitEditArgs,
+}
+
+/// Metadata changes applied by the shared commit-edit transaction.
+#[derive(clap::Args, Clone, Debug, Default)]
+pub(crate) struct CommitEditArgs {
     /// Generate a new change-id
     ///
     /// This generates a new change-id for the revision.
@@ -158,6 +167,23 @@ pub(crate) struct MetaeditArgs {
     force_rewrite: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct CommitEditOptions {
+    transaction_action: &'static str,
+    force_sign: bool,
+    preserve_descendant_metadata: bool,
+}
+
+impl Default for CommitEditOptions {
+    fn default() -> Self {
+        Self {
+            transaction_action: "edit commit metadata for",
+            force_sign: false,
+            preserve_descendant_metadata: false,
+        }
+    }
+}
+
 #[instrument(skip_all)]
 pub(crate) async fn cmd_metaedit(
     ui: &mut Ui,
@@ -186,17 +212,33 @@ pub(crate) async fn cmd_metaedit(
         return Ok(());
     }
 
+    edit_commits(
+        ui,
+        &mut workspace_command,
+        &args.edit_args,
+        CommitEditOptions::default(),
+        commit_ids,
+    )
+    .await
+}
+
+pub(crate) async fn edit_commits(
+    ui: &mut Ui,
+    workspace_command: &mut WorkspaceCommandHelper,
+    args: &CommitEditArgs,
+    options: CommitEditOptions,
+    commit_ids: Vec<jj_lib::backend::CommitId>,
+) -> Result<(), CommandError> {
     let mut tx = workspace_command.start_transaction();
     let tx_description = match commit_ids.as_slice() {
         [] => unreachable!(),
-        [commit] => format!("edit commit metadata for commit {}", commit.hex()),
-        [first_commit, remaining_commits @ ..] => {
-            format!(
-                "edit commit metadata for commit {} and {} more",
-                first_commit.hex(),
-                remaining_commits.len()
-            )
-        }
+        [commit] => format!("{} commit {}", options.transaction_action, commit.hex()),
+        [first_commit, remaining_commits @ ..] => format!(
+            "{} commit {} and {} more",
+            options.transaction_action,
+            first_commit.hex(),
+            remaining_commits.len()
+        ),
     };
 
     let new_description = args
@@ -220,6 +262,7 @@ pub(crate) async fn cmd_metaedit(
 
                 let old_author = rewriter.old_commit().author().clone();
                 let old_committer = rewriter.old_commit().committer().clone();
+                let was_signed = rewriter.old_commit().is_signed();
                 let mut commit_builder = rewriter.reparent();
                 let mut new_author = commit_builder.author().clone();
                 if let Some((name, email)) = args.author.clone() {
@@ -281,12 +324,25 @@ pub(crate) async fn cmd_metaedit(
                     rewrite = true;
                 }
 
+                if options.force_sign {
+                    commit_builder = commit_builder.set_sign_behavior(SignBehavior::Force);
+                    rewrite |= !was_signed;
+                }
+
                 if rewrite {
                     let new_commit = commit_builder.write().await?;
                     modified.push(new_commit);
                 }
             } else if rewriter.parents_changed() {
-                rewriter.reparent().write().await?;
+                if options.preserve_descendant_metadata {
+                    rewriter
+                        .reparent_preserving_metadata()
+                        .set_sign_behavior(SignBehavior::Keep)
+                        .write()
+                        .await?;
+                } else {
+                    rewriter.reparent().write().await?;
+                }
                 num_reparented += 1;
             }
             Ok(())
