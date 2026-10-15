@@ -108,10 +108,37 @@ pub(crate) struct MetaeditArgs {
     /// [RFC3339]: https://datatracker.ietf.org/doc/html/rfc3339
     #[arg(
         long,
-        conflicts_with = "update_author_timestamp",
+        conflicts_with_all = ["update_author_timestamp", "timestamp"],
         value_parser = parse_datetime
     )]
     author_timestamp: Option<Timestamp>,
+
+    /// Set both the author and committer dates to the given date
+    ///
+    /// This is equivalent to setting `--author-timestamp` and
+    /// `--committer-timestamp` to the same value.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "author_timestamp",
+            "update_author_timestamp",
+            "committer_timestamp"
+        ],
+        value_parser = parse_datetime
+    )]
+    timestamp: Option<Timestamp>,
+
+    /// Set the committer date to the given date
+    ///
+    /// The date can either be human readable
+    /// ([RFC2822], eg 'Sun, 23 Jan 2000 01:23:45 PST')
+    /// or a time stamp ([RFC3339], eg '2000-01-23T01:23:45-08:00').
+    ///
+    /// [RFC2822]: https://datatracker.ietf.org/doc/html/rfc2822
+    ///
+    /// [RFC3339]: https://datatracker.ietf.org/doc/html/rfc3339
+    #[arg(long, conflicts_with = "timestamp", value_parser = parse_datetime)]
+    committer_timestamp: Option<Timestamp>,
 
     /// Rewrite the commit, even if no other metadata changed
     ///
@@ -192,6 +219,7 @@ pub(crate) async fn cmd_metaedit(
                 let mut rewrite = args.force_rewrite || rewriter.parents_changed();
 
                 let old_author = rewriter.old_commit().author().clone();
+                let old_committer = rewriter.old_commit().committer().clone();
                 let mut commit_builder = rewriter.reparent();
                 let mut new_author = commit_builder.author().clone();
                 if let Some((name, email)) = args.author.clone() {
@@ -207,17 +235,38 @@ pub(crate) async fn cmd_metaedit(
                 if let Some(author_date) = args.author_timestamp {
                     new_author.timestamp = author_date;
                 }
+                if let Some(timestamp) = args.timestamp {
+                    new_author.timestamp = timestamp;
+                }
                 // If the old commit had an unset author, the commit builder
                 // may already have the author updated from the current config.
                 // Thus, compare to the actual old_author to correctly detect
                 // changes.
-                if new_author.name != old_author.name
-                    || new_author.email != old_author.email
+                let author_identity_changed =
+                    new_author.name != old_author.name || new_author.email != old_author.email;
+                let author_timestamp_requested = args.update_author_timestamp
+                    || args.timestamp.is_some()
+                    || args.author_timestamp.is_some();
+                let author_timestamp_changed =
+                    author_timestamp_requested && new_author.timestamp != old_author.timestamp;
+                let should_set_author = author_identity_changed
                     || (new_author.timestamp != commit_builder.author().timestamp
-                        && new_author.timestamp != old_author.timestamp)
-                {
+                        && (author_timestamp_requested
+                            || new_author.timestamp != old_author.timestamp));
+                if should_set_author {
                     commit_builder = commit_builder.set_author(new_author);
+                }
+                if author_identity_changed || author_timestamp_changed {
                     rewrite = true;
+                }
+
+                if let Some(timestamp) = args.timestamp.or(args.committer_timestamp) {
+                    let mut committer = commit_builder.committer().clone();
+                    committer.timestamp = timestamp;
+                    commit_builder = commit_builder.set_committer(committer);
+                    if timestamp != old_committer.timestamp {
+                        rewrite = true;
+                    }
                 }
 
                 if let Some(description) = &new_description

@@ -816,6 +816,100 @@ fn test_metaedit_set_same_timestamp_twice() {
     ");
 }
 
+#[test]
+fn test_metaedit_exact_timestamps() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    work_dir.run_jj(["describe", "-m", "target"]).success();
+
+    work_dir
+        .run_jj(["metaedit", "--timestamp", "2002-03-04T05:06:07+00:00"])
+        .success();
+    assert_eq!(
+        exact_timestamps(&work_dir),
+        "2002-03-04 05:06:07|2002-03-04 05:06:07\n"
+    );
+
+    let commit_id = work_dir
+        .run_jj(["log", "--no-graph", "-r", "@", "-T", "commit_id"])
+        .success()
+        .stdout
+        .raw()
+        .to_owned();
+    insta::assert_snapshot!(work_dir.run_jj([
+        "metaedit",
+        "--timestamp",
+        "2002-03-04T05:06:07+00:00",
+    ]), @"
+    ------- stderr -------
+    Nothing changed.
+    [EOF]
+    ");
+    assert_eq!(
+        work_dir
+            .run_jj(["log", "--no-graph", "-r", "@", "-T", "commit_id"])
+            .success()
+            .stdout
+            .raw(),
+        commit_id
+    );
+
+    work_dir
+        .run_jj([
+            "metaedit",
+            "--committer-timestamp",
+            "2003-04-05T06:07:08+00:00",
+        ])
+        .success();
+    assert_eq!(
+        exact_timestamps(&work_dir),
+        "2002-03-04 05:06:07|2003-04-05 06:07:08\n"
+    );
+}
+
+#[test]
+fn test_metaedit_timestamp_option_conflicts() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    insta::assert_snapshot!(work_dir.run_jj([
+        "metaedit",
+        "--timestamp",
+        "2002-03-04T05:06:07+00:00",
+        "--author-timestamp",
+        "2002-03-04T05:06:07+00:00",
+    ]), @r"
+    ------- stderr -------
+    error: the argument '--timestamp <TIMESTAMP>' cannot be used with '--author-timestamp <AUTHOR_TIMESTAMP>'
+
+    Usage: jj metaedit --timestamp <TIMESTAMP> [REVSETS]...
+
+    For more information, try '--help'.
+    [EOF]
+    [exit status: 2]
+    ");
+}
+
+fn exact_timestamps(work_dir: &TestWorkDir) -> String {
+    work_dir
+        .run_jj([
+            "log",
+            "--no-graph",
+            "-r",
+            "@",
+            "-T",
+            r#"author.timestamp().utc().format("%Y-%m-%d %H:%M:%S")
+              ++ "|" ++ committer.timestamp().utc().format("%Y-%m-%d %H:%M:%S")
+              ++ "\n""#,
+        ])
+        .success()
+        .stdout
+        .raw()
+        .to_owned()
+}
+
 #[must_use]
 fn get_log(work_dir: &TestWorkDir) -> CommandOutput {
     work_dir.run_jj([

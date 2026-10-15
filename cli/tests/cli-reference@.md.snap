@@ -2423,6 +2423,16 @@ Whenever any metadata is updated, the committer name, email, and timestamp are a
    [RFC2822]: https://datatracker.ietf.org/doc/html/rfc2822
 
    [RFC3339]: https://datatracker.ietf.org/doc/html/rfc3339
+* `--timestamp <TIMESTAMP>` — Set both the author and committer dates to the given date
+
+   This is equivalent to setting `--author-timestamp` and `--committer-timestamp` to the same value.
+* `--committer-timestamp <COMMITTER_TIMESTAMP>` — Set the committer date to the given date
+
+   The date can either be human readable ([RFC2822], eg 'Sun, 23 Jan 2000 01:23:45 PST') or a time stamp ([RFC3339], eg '2000-01-23T01:23:45-08:00').
+
+   [RFC2822]: https://datatracker.ietf.org/doc/html/rfc2822
+
+   [RFC3339]: https://datatracker.ietf.org/doc/html/rfc3339
 * `--force-rewrite` — Rewrite the commit, even if no other metadata changed
 
    This updates the committer timestamp to the current time, as well as the committer name and email.

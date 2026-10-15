@@ -270,6 +270,9 @@ None
   back to prompting the user if the heuristics are inconclusive. It can also run
   in non-interactive mode, which aborts if prompting would be needed.
 
+* `jj metaedit` now supports `--timestamp` to set both commit timestamps and
+  `--committer-timestamp` to set only the committer timestamp.
+
 * `jj bisect` will now mention when it cannot unambiguously find the first bad
   revision due to skips in evaluation.
 
