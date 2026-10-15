@@ -45,6 +45,7 @@ mod operation;
 mod parallelize;
 mod prev;
 mod rebase;
+mod redate;
 mod redo;
 mod resolve;
 mod restore;
@@ -142,6 +143,7 @@ enum Command {
     Parallelize(parallelize::ParallelizeArgs),
     Prev(prev::PrevArgs),
     Rebase(rebase::RebaseArgs),
+    Redate(redate::RedateArgs),
     Redo(redo::RedoArgs),
     Resolve(resolve::ResolveArgs),
     Restore(restore::RestoreArgs),
@@ -208,6 +210,7 @@ pub async fn run_command(ui: &mut Ui, command_helper: &CommandHelper) -> Result<
         Command::Parallelize(args) => parallelize::cmd_parallelize(ui, command_helper, args).await,
         Command::Prev(args) => prev::cmd_prev(ui, command_helper, args).await,
         Command::Rebase(args) => rebase::cmd_rebase(ui, command_helper, args).await,
+        Command::Redate(args) => redate::cmd_redate(ui, command_helper, args).await,
         Command::Redo(args) => redo::cmd_redo(ui, command_helper, args).await,
         Command::Resolve(args) => resolve::cmd_resolve(ui, command_helper, args).await,
         Command::Restore(args) => restore::cmd_restore(ui, command_helper, args).await,

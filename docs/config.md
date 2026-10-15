@@ -1655,6 +1655,32 @@ this setting for a single invocation:
 jj run -j 4 -- cargo fmt
 ```
 
+## `redate`: Assigning exact timestamps {: #redate }
+
+`jj redate` lets you select one or more mutable revisions, enter an exact
+timestamp, and confirm the rewrite. Pass `--sign` to sign the selected
+revisions. Rebased descendants retain their author and committer metadata;
+existing signatures follow jj's standard `keep` signing behavior. Use
+`jj metaedit --timestamp` when interactive selection is not wanted.
+
+When no revisions are specified in a terminal, the picker uses
+`revsets.redate`. Its default is `mutable()`, so the picker includes revisions
+on other branches even when the working copy starts at the trunk. Press `c`
+to confirm the selection. The picker renders revision topology with the same
+`ui.graph.style` and `templates.log_node` settings as `jj log`;
+`templates.redate` controls the details shown beside each graph node.
+
+```toml
+[revsets]
+redate = "mine() & mutable()"
+
+[templates]
+redate = 'change_id.shortest(8) ++ " " ++ description.first_line()'
+```
+
+`--sign` requires a configured signing backend. Timestamps accept the same RFC
+2822 and RFC 3339 forms as `jj metaedit --timestamp`.
+
 ## Commit Signing
 
 `jj` can be configured to sign and verify the commits it creates using either

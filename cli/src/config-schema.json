@@ -757,6 +757,11 @@
                     "description": "Default set of revisions to run a command on when no explicit revset is given for jj run",
                     "default": "reachable(@, mutable())"
                 },
+                "redate": {
+                    "type": "string",
+                    "description": "Default set of revisions to offer in the jj redate TUI",
+                    "default": "mutable()"
+                },
                 "simplify-parents": {
                     "type": "string",
                     "description": "Default set of revisions to simplify when no explicit revset is given for jj simplify-parents",
@@ -1094,6 +1099,10 @@
                 "arrange": {
                     "type": "string",
                     "description": "`jj arrange``'s template for commits in the main view"
+                },
+                "redate": {
+                    "type": "string",
+                    "description": "`jj redate`'s template for revisions in the interactive picker"
                 },
                 "bookmark_list": {
                     "type": "string",

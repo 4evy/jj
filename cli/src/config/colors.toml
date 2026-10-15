@@ -122,3 +122,7 @@
 "workspace root" = "default"
 
 "arrange context commit" = { dim = true }
+"redate selection selected" = { fg = "magenta", bold = true }
+"redate commit working_copy" = { fg = "magenta", bold = true }
+"redate commit change" = { fg = "cyan", bold = true }
+"redate commit empty" = { fg = "bright black", italic = true }

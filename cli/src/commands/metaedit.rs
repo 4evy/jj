@@ -167,6 +167,15 @@ pub(crate) struct CommitEditArgs {
     force_rewrite: bool,
 }
 
+impl CommitEditArgs {
+    pub(crate) fn for_redate(timestamp: Timestamp) -> Self {
+        Self {
+            timestamp: Some(timestamp),
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct CommitEditOptions {
     transaction_action: &'static str,
@@ -180,6 +189,16 @@ impl Default for CommitEditOptions {
             transaction_action: "edit commit metadata for",
             force_sign: false,
             preserve_descendant_metadata: false,
+        }
+    }
+}
+
+impl CommitEditOptions {
+    pub(crate) fn redate(force_sign: bool) -> Self {
+        Self {
+            transaction_action: "redate",
+            force_sign,
+            preserve_descendant_metadata: true,
         }
     }
 }

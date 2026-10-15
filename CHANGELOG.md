@@ -304,6 +304,10 @@ None
   repositories. `jj git ref fetch --shallow-exclude` can fetch a review stack
   plus one parent generation for a usable diff base.
 
+* The new `jj redate` command interactively selects revisions from a graphical
+  commit picker and assigns an exact timestamp. Signing is opt-in with
+  `--sign`.
+
 ### Fixed bugs
 
 * [The default `immutable_heads()` set](docs/config.md#set-of-immutable-commits)
