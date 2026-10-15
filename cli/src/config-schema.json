@@ -515,6 +515,11 @@
                         }
                     ]
                 },
+                "fetch-depth": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Default depth used by Git fetch commands in an existing shallow repository"
+                },
                 "private-commits": {
                     "type": "string",
                     "description": "Revset of commits to refuse to push to remotes",

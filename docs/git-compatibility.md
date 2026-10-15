@@ -60,8 +60,9 @@ a comparison with Git, including how workflows are different, see the
   not be lost either.
 * **Partial clones: No.**
 * **Shallow clones: Kind of.** Shallow commits all have the virtual root commit
-  as their parent. However, deepening or fully unshallowing a repository is
-  currently not yet supported and will cause issues.
+  as their parent. `jj git fetch --depth <DEPTH>` can deepen a shallow
+  repository; `git.fetch-depth` supplies its default fetch depth. Changing the
+  shallow boundary with an external `git fetch` is not supported.
 * **git-worktree: No.** However, there's native support for multiple working
   copies backed by a single repo. See the `jj workspace` family of commands.
 * **Sparse checkouts: No.** However, there's native support for sparse

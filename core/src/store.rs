@@ -276,7 +276,7 @@ impl Store {
         self.backend.write_symlink(path, contents).await
     }
 
-    /// Clear cached objects. Mainly intended for testing.
+    /// Clears cached objects
     pub fn clear_caches(&self) {
         self.commit_cache.lock().unwrap().clear();
         self.tree_cache.lock().unwrap().clear();
