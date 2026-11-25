@@ -56,13 +56,18 @@ pub trait GraphLog<K: Clone + Eq + Hash> {
 }
 
 pub struct SaplingGraphLog<'writer, K> {
+    renderer: GraphRenderer<'writer, K>,
+    formatter: &'writer mut dyn Formatter,
+}
+
+/// Stateful renderer for callers that need each revision row separately
+pub struct GraphRenderer<'ui, K> {
     shaper: GraphRowShaper<K>,
     prefix_lines: Box<dyn PrefixLineRenderer<K>>,
     text: PrefixLinesToText,
-    /// Converts a width in columns to a width in characters.
+    /// Converts a width in columns to a width in characters
     columns_to_chars: fn(u64) -> u64,
-    formatter: &'writer mut dyn Formatter,
-    ui: &'writer Ui,
+    ui: &'ui Ui,
 }
 
 fn convert_graph_edge_into_ancestor<K: Clone>(e: &GraphEdge<K>) -> Ancestor<K> {
@@ -73,12 +78,28 @@ fn convert_graph_edge_into_ancestor<K: Clone>(e: &GraphEdge<K>) -> Ancestor<K> {
     }
 }
 
-impl<K> GraphLog<K> for SaplingGraphLog<'_, K>
-where
-    K: Clone + Debug + Eq + Hash,
-{
+impl<K: Clone + Debug + Eq + Hash> GraphLog<K> for SaplingGraphLog<'_, K> {
     fn add_node(
         &mut self,
+        id: &K,
+        edges: &[GraphEdge<K>],
+        render_node_symbol: &dyn Fn(&mut dyn Formatter) -> io::Result<()>,
+        text: &str,
+    ) -> io::Result<()> {
+        self.renderer
+            .render_row(self.formatter, id, edges, render_node_symbol, text)
+    }
+
+    fn width(&self, id: &K, edges: &[GraphEdge<K>]) -> usize {
+        self.renderer.width(id, edges)
+    }
+}
+
+impl<K: Clone + Debug + Eq + Hash> GraphRenderer<'_, K> {
+    /// Render one row to the formatter and advance the graph state
+    pub fn render_row(
+        &mut self,
+        formatter: &mut dyn Formatter,
         id: &K,
         edges: &[GraphEdge<K>],
         render_node_symbol: &dyn Fn(&mut dyn Formatter) -> io::Result<()>,
@@ -119,7 +140,7 @@ where
         self.text.write_next_lines(
             |text, color| {
                 if result.is_ok() {
-                    result = write_piece(self.formatter, text, *color);
+                    result = write_piece(formatter, text, *color);
                 }
             },
             prefix_lines,
@@ -131,7 +152,8 @@ where
         result
     }
 
-    fn width(&self, id: &K, edges: &[GraphEdge<K>]) -> usize {
+    /// Width in characters of the graph prefix for a row
+    pub fn width(&self, id: &K, edges: &[GraphEdge<K>]) -> usize {
         let parents = edges.iter().map(convert_graph_edge_into_ancestor).collect();
         let columns = self.shaper.width(Some(id), Some(&parents));
         (self.columns_to_chars)(columns).try_into().unwrap()
@@ -180,6 +202,17 @@ pub fn get_graphlog<'a, K: Clone + Debug + Eq + Hash + 'a>(
     style: GraphStyle,
     formatter: &'a mut dyn Formatter,
 ) -> Box<dyn GraphLog<K> + 'a> {
+    Box::new(SaplingGraphLog {
+        renderer: get_graph_renderer(ui, style),
+        formatter,
+    })
+}
+
+/// Create a stateful renderer using the same styles as the CLI graph log
+pub fn get_graph_renderer<K: Clone + Debug + Eq + Hash>(
+    ui: &Ui,
+    style: GraphStyle,
+) -> GraphRenderer<'_, K> {
     let prefix_lines: Box<dyn PrefixLineRenderer<K>> = match style {
         GraphStyle::Ascii => Box::new(Ascii::new()),
         GraphStyle::AsciiLarge => Box::new(AsciiLarge),
@@ -201,12 +234,49 @@ pub fn get_graphlog<'a, K: Clone + Debug + Eq + Hash + 'a>(
     let allocator = build_line_id_allocator_from_rules("parent,incoming,free", LINE_LABELS.len());
     let mut shaper = GraphRowShaper::new().with_line_id_allocator(allocator);
     shaper.options_mut().min_row_height = 0;
-    Box::new(SaplingGraphLog {
+    GraphRenderer {
         shaper,
         prefix_lines,
         text: PrefixLinesToText::new(),
         columns_to_chars,
-        formatter,
         ui,
-    })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_renderer_renders_revision_topology() {
+        let rows = [
+            (
+                3,
+                vec![GraphEdge::direct(1), GraphEdge::direct(2)],
+                "@",
+                "merge",
+            ),
+            (2, vec![GraphEdge::direct(0)], "o", "right"),
+            (1, vec![GraphEdge::direct(0)], "o", "left"),
+            (0, vec![], "o", "root"),
+        ];
+        let ui = Ui::null();
+        let mut graph = get_graph_renderer(&ui, GraphStyle::Ascii);
+        let mut output = Vec::new();
+        for (id, edges, node_symbol, text) in &rows {
+            graph
+                .render_row(
+                    ui.new_formatter(&mut output).as_mut(),
+                    id,
+                    edges,
+                    &|formatter| write!(formatter, "{node_symbol}"),
+                    text,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "@    merge\n|\\\n| o  right\no |  left\n|/\no  root\n"
+        );
+    }
 }
