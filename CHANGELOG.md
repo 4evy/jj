@@ -495,6 +495,10 @@ None
   when the commit stack is taller than the terminal.
   [#9033](https://github.com/jj-vcs/jj/issues/9033).
 
+* Signing commits during `jj git push` now preserves their author and committer
+  metadata, including timestamps set by `jj redate`. Metadata is also preserved
+  on descendants rebased by the signing rewrite.
+
 * The default pager flags now include `-K` (`--quit-on-intr`), so pressing
   Ctrl+C in `less` exits cleanly instead of leaving the terminal in a
   corrupted state (raw mode, visible escape sequences, broken input).

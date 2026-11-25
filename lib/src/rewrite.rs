@@ -327,6 +327,17 @@ impl<'repo> CommitRewriter<'repo> {
             .await
             .set_parents(self.new_parents)
     }
+
+    /// Reparents without changing the author or committer, including their
+    /// timestamps
+    pub async fn reparent_preserving_metadata(self) -> CommitBuilder<'repo> {
+        let author = self.old_commit.author().clone();
+        let committer = self.old_commit.committer().clone();
+        self.reparent()
+            .await
+            .set_author(author)
+            .set_committer(committer)
+    }
 }
 
 /// Result of rebasing a commit with [`rebase_commit_with_options()`].

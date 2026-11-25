@@ -966,9 +966,8 @@ async fn sign_commits_before_push<'a>(
 
     let commit_ids: IndexSet<CommitId> = workspace_helper
         .attach_revset_evaluator(needs_signing.minus(&immutable))
-        .evaluate_to_commits()
+        .evaluate_to_commit_ids()
         .await?
-        .map_ok(|commit| commit.id().clone())
         .try_collect()
         .await?;
     if commit_ids.is_empty() {
@@ -991,19 +990,21 @@ async fn sign_commits_before_push<'a>(
                             .display(&short_change_hash(old_commit.change_id()))
                             .ok();
                     }
-                    if commit_ids.contains(&old_commit_id) {
-                        let commit = rewriter
-                            .reparent()
-                            .await
-                            .set_sign_behavior(SignBehavior::Force)
-                            .write()
-                            .await?;
-                        old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
+                    let sign_behavior = if commit_ids.contains(&old_commit_id) {
+                        SignBehavior::Force
                     } else {
                         num_rebased_descendants += 1;
-                        let commit = rewriter.reparent().await.write().await?;
-                        old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
-                    }
+                        SignBehavior::Keep
+                    };
+                    // Preserve user-authored metadata, including dates set by
+                    // `jj redate`, when signing or rewriting descendants
+                    let commit = rewriter
+                        .reparent_preserving_metadata()
+                        .await
+                        .set_sign_behavior(sign_behavior)
+                        .write()
+                        .await?;
+                    old_to_new_commits_map.insert(old_commit_id, commit.id().clone());
                     Ok(())
                 },
             )
