@@ -23,7 +23,7 @@ fn test_undo_root_operation() {
     let output = work_dir.run_jj(["undo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Undid operation: f63ee16f9553 (2001-02-03 08:05:07) add workspace 'default'
+    Undid operation: 3366dbbb81ac (2001-02-03 08:05:07) add workspace 'default'
     Restored to operation: 000000000000 root()
     Warning: The current workspace 'default' no longer exists after this operation. The working copy was left untouched.
     Hint: Restore to an operation that contains the workspace (e.g. `jj undo` or `jj redo`).
@@ -78,8 +78,8 @@ fn test_undo_push_operation() {
     ------- stderr -------
     Warning: Undoing a push operation often leads to conflicted bookmarks.
     Hint: To avoid this, run `jj redo` now.
-    Undid operation: bf468ba1c198 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
-    Restored to operation: 27cf57bcf92a (2001-02-03 08:05:09) commit 3850397cf31988d0657948307ad5bbe873d76a38
+    Undid operation: 4cc1054520a8 (2001-02-03 08:05:10) push bookmark push-rlvkpnrzqnoo to git remote origin
+    Restored to operation: 1a48815dddd3 (2001-02-03 08:05:09) commit 3850397cf31988d0657948307ad5bbe873d76a38
     [EOF]
     ");
 }
@@ -187,7 +187,7 @@ fn test_undo_redo_cross_workspace() {
     let output = main_dir.run_jj(["undo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Refusing to undo operation b560ac028cf9 because it was performed in workspace second
+    Error: Refusing to undo operation a4fbe77797f8 because it was performed in workspace second
     Hint: Use `--allow-cross-workspace` to undo it anyway, or use `jj op revert` to revert a specific operation
     [EOF]
     [exit status: 1]
@@ -197,8 +197,8 @@ fn test_undo_redo_cross_workspace() {
     let output = main_dir.run_jj(["undo", "--allow-cross-workspace"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Undid operation: b560ac028cf9 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
-    Restored to operation: ba256c651f84 (2001-02-03 08:05:08) create initial working-copy commit in workspace second
+    Undid operation: a4fbe77797f8 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
+    Restored to operation: 52320270f524 (2001-02-03 08:05:08) create initial working-copy commit in workspace second
     [EOF]
     ");
 
@@ -206,7 +206,7 @@ fn test_undo_redo_cross_workspace() {
     let output = second_dir.run_jj(["redo"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Error: Refusing to redo operation ba101dd2628e because it was performed in workspace default
+    Error: Refusing to redo operation 8429d5d135a5 because it was performed in workspace default
     Hint: Use `--allow-cross-workspace` to redo it anyway, or use `jj op revert` to revert a specific undo operation
     [EOF]
     [exit status: 1]
@@ -216,7 +216,7 @@ fn test_undo_redo_cross_workspace() {
     let output = second_dir.run_jj(["redo", "--allow-cross-workspace"]);
     insta::assert_snapshot!(output, @"
     ------- stderr -------
-    Restored to operation: b560ac028cf9 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
+    Restored to operation: a4fbe77797f8 (2001-02-03 08:05:09) describe commit 94f41578a9e101e2c85877f3b4eaa9f5e915783f
     Working copy  (@) now at: uuqppmxq a7e048f9 (empty) second
     Parent commit (@-)      : zzzzzzzz 00000000 (empty) (no description set)
     [EOF]
