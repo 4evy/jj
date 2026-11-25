@@ -14,10 +14,9 @@
 
 use clap_complete::ArgValueCandidates;
 use jj_lib::op_store::RefTarget;
-use jj_lib::ref_name::GitRefNameBuf;
-use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::RemoteNameBuf;
 
+use super::canonicalize_git_ref_name;
 use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::command_error::user_error;
@@ -28,9 +27,9 @@ use crate::ui::Ui;
 #[derive(clap::Args, Clone, Debug)]
 pub struct GitRefForgetArgs {
     /// Forget a ref fetched from this remote
-    #[arg(long = "remote", value_name = "REMOTE")]
+    #[arg(long, value_name = "REMOTE")]
     #[arg(add = ArgValueCandidates::new(complete::git_remotes))]
-    remote: String,
+    remote: RemoteNameBuf,
 
     /// The fetched ref to forget
     #[arg(value_name = "REF")]
@@ -43,24 +42,23 @@ pub async fn cmd_git_ref_forget(
     args: &GitRefForgetArgs,
 ) -> Result<(), CommandError> {
     let mut workspace_command = command.workspace_helper(ui).await?;
-    let remote_name = RemoteNameBuf::from(args.remote.as_str());
-    let ref_name = GitRefNameBuf::from(args.ref_name.as_str());
+    let ref_name = canonicalize_git_ref_name(&args.ref_name)?;
     if workspace_command
         .repo()
         .view()
-        .get_fetched_git_ref(remote_name.as_ref(), ref_name.as_ref())
+        .get_fetched_git_ref(args.remote.as_ref(), ref_name.as_ref())
         .is_absent()
     {
         return Err(user_error(format!(
             "No fetched Git ref {}@{}",
             ref_name.as_symbol(),
-            remote_name.as_symbol()
+            args.remote.as_symbol()
         )));
     }
 
     let mut tx = workspace_command.start_transaction();
     tx.repo_mut().set_fetched_git_ref_target(
-        RemoteName::new(&args.remote),
+        args.remote.as_ref(),
         ref_name.as_ref(),
         RefTarget::absent(),
     );
@@ -69,7 +67,7 @@ pub async fn cmd_git_ref_forget(
         format!(
             "forget fetched git ref {}@{}",
             ref_name.as_symbol(),
-            remote_name.as_symbol()
+            args.remote.as_symbol()
         ),
     )
     .await?;
