@@ -19,11 +19,13 @@ use futures::TryStreamExt as _;
 use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
 use jj_lib::object_id::ObjectId as _;
+use jj_lib::settings::SignBehavior;
 use jj_lib::time_util::parse_datetime;
 use tracing::instrument;
 
 use crate::cli_util::CommandHelper;
 use crate::cli_util::RevisionArg;
+use crate::cli_util::WorkspaceCommandHelper;
 use crate::cli_util::print_updated_commits;
 use crate::command_error::CommandError;
 use crate::complete;
@@ -48,6 +50,13 @@ pub(crate) struct MetaeditArgs {
     #[arg(add = ArgValueCompleter::new(complete::revset_expression_mutable))]
     revisions_opt: Vec<RevisionArg>,
 
+    #[command(flatten)]
+    edit_args: CommitEditArgs,
+}
+
+/// Metadata changes applied by the shared commit-edit transaction.
+#[derive(clap::Args, Clone, Debug, Default)]
+pub(crate) struct CommitEditArgs {
     /// Generate a new change-id
     ///
     /// This generates a new change-id for the revision.
@@ -158,6 +167,42 @@ pub(crate) struct MetaeditArgs {
     force_rewrite: bool,
 }
 
+impl CommitEditArgs {
+    pub(crate) fn for_redate(timestamp: Timestamp) -> Self {
+        Self {
+            timestamp: Some(timestamp),
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CommitEditOptions {
+    transaction_action: &'static str,
+    force_sign: bool,
+    preserve_descendant_metadata: bool,
+}
+
+impl Default for CommitEditOptions {
+    fn default() -> Self {
+        Self {
+            transaction_action: "edit commit metadata for",
+            force_sign: false,
+            preserve_descendant_metadata: false,
+        }
+    }
+}
+
+impl CommitEditOptions {
+    pub(crate) fn redate(force_sign: bool) -> Self {
+        Self {
+            transaction_action: "redate",
+            force_sign,
+            preserve_descendant_metadata: true,
+        }
+    }
+}
+
 #[instrument(skip_all)]
 pub(crate) async fn cmd_metaedit(
     ui: &mut Ui,
@@ -187,17 +232,33 @@ pub(crate) async fn cmd_metaedit(
         return Ok(());
     }
 
+    edit_commits(
+        ui,
+        &mut workspace_command,
+        &args.edit_args,
+        CommitEditOptions::default(),
+        commit_ids,
+    )
+    .await
+}
+
+pub(crate) async fn edit_commits(
+    ui: &mut Ui,
+    workspace_command: &mut WorkspaceCommandHelper,
+    args: &CommitEditArgs,
+    options: CommitEditOptions,
+    commit_ids: Vec<jj_lib::backend::CommitId>,
+) -> Result<(), CommandError> {
     let mut tx = workspace_command.start_transaction();
     let tx_description = match commit_ids.as_slice() {
         [] => unreachable!(),
-        [commit] => format!("edit commit metadata for commit {}", commit.hex()),
-        [first_commit, remaining_commits @ ..] => {
-            format!(
-                "edit commit metadata for commit {} and {} more",
-                first_commit.hex(),
-                remaining_commits.len()
-            )
-        }
+        [commit] => format!("{} commit {}", options.transaction_action, commit.hex()),
+        [first_commit, remaining_commits @ ..] => format!(
+            "{} commit {} and {} more",
+            options.transaction_action,
+            first_commit.hex(),
+            remaining_commits.len()
+        ),
     };
 
     let new_description = args
@@ -220,7 +281,8 @@ pub(crate) async fn cmd_metaedit(
                 let mut rewrite = args.force_rewrite || rewriter.parents_changed();
 
                 let old_author = rewriter.old_commit().author().clone();
-                let old_committer = rewriter.old_commit().committer().clone();
+                let old_committer_timestamp = rewriter.old_commit().committer().timestamp;
+                let was_signed = rewriter.old_commit().is_signed();
                 let mut commit_builder = rewriter.reparent().await;
                 let mut new_author = commit_builder.author().clone();
                 if let Some((name, email)) = args.author.clone() {
@@ -230,13 +292,11 @@ pub(crate) async fn cmd_metaedit(
                     new_author.name = commit_builder.committer().name.clone();
                     new_author.email = commit_builder.committer().email.clone();
                 }
-                if args.update_author_timestamp {
-                    new_author.timestamp = commit_builder.committer().timestamp;
-                }
-                if let Some(author_date) = args.author_timestamp {
-                    new_author.timestamp = author_date;
-                }
-                if let Some(timestamp) = args.timestamp {
+                let author_timestamp = args.timestamp.or(args.author_timestamp).or_else(|| {
+                    args.update_author_timestamp
+                        .then(|| commit_builder.committer().timestamp)
+                });
+                if let Some(timestamp) = author_timestamp {
                     new_author.timestamp = timestamp;
                 }
                 // If the old commit had an unset author, the commit builder
@@ -245,16 +305,11 @@ pub(crate) async fn cmd_metaedit(
                 // changes.
                 let author_identity_changed =
                     new_author.name != old_author.name || new_author.email != old_author.email;
-                let author_timestamp_requested = args.update_author_timestamp
-                    || args.timestamp.is_some()
-                    || args.author_timestamp.is_some();
                 let author_timestamp_changed =
-                    author_timestamp_requested && new_author.timestamp != old_author.timestamp;
-                let should_set_author = author_identity_changed
-                    || (new_author.timestamp != commit_builder.author().timestamp
-                        && (author_timestamp_requested
-                            || new_author.timestamp != old_author.timestamp));
-                if should_set_author {
+                    author_timestamp.is_some_and(|timestamp| timestamp != old_author.timestamp);
+                if author_identity_changed
+                    || new_author.timestamp != commit_builder.author().timestamp
+                {
                     commit_builder = commit_builder.set_author(new_author);
                 }
                 if author_identity_changed || author_timestamp_changed {
@@ -265,7 +320,7 @@ pub(crate) async fn cmd_metaedit(
                     let mut committer = commit_builder.committer().clone();
                     committer.timestamp = timestamp;
                     commit_builder = commit_builder.set_committer(committer);
-                    if timestamp != old_committer.timestamp {
+                    if timestamp != old_committer_timestamp {
                         rewrite = true;
                     }
                 }
@@ -282,12 +337,26 @@ pub(crate) async fn cmd_metaedit(
                     rewrite = true;
                 }
 
+                if options.force_sign {
+                    commit_builder = commit_builder.set_sign_behavior(SignBehavior::Force);
+                    rewrite |= !was_signed;
+                }
+
                 if rewrite {
                     let new_commit = commit_builder.write().await?;
                     modified.push(new_commit);
                 }
             } else if rewriter.parents_changed() {
-                rewriter.reparent().await.write().await?;
+                if options.preserve_descendant_metadata {
+                    rewriter
+                        .reparent_preserving_metadata()
+                        .await
+                        .set_sign_behavior(SignBehavior::Keep)
+                        .write()
+                        .await?;
+                } else {
+                    rewriter.reparent().await.write().await?;
+                }
                 num_reparented += 1;
             }
             Ok(())

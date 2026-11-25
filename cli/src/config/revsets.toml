@@ -9,6 +9,7 @@ git-push = "remote_bookmarks(remote=exact:remote)..@"
 git-sign-on-push = "none()"
 run = "reachable(@, mutable())"
 simplify-parents = "reachable(@, mutable())"
+redate = "mutable()"
 # log revset is also used as the default short-prefixes. If it failed to
 # evaluate, lengthy warning messages would be printed. Use present(expr) if
 # symbols in expr might not always exist.
