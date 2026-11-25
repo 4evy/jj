@@ -36,6 +36,15 @@ pub enum DatePatternParseError {
     ParseError(#[from] DateError),
 }
 
+/// Error occurred while parsing a date-time expression.
+#[derive(Debug, Error)]
+#[error("Couldn't understand `{input}` as a date and time")]
+pub struct DateTimeExpressionParseError {
+    input: String,
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+}
+
 /// Represents an range of dates that may be matched against.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DatePattern {
@@ -131,6 +140,62 @@ pub enum TimestampParseError {
     /// The date-time has no offset from UTC.
     #[error("Missing offset from UTC")]
     MissingOffset,
+}
+
+/// Parses an exact or relative date-time expression relative to `now`.
+///
+/// Expressions without an explicit time zone are interpreted in `now`'s time
+/// zone. For example, this accepts `now`, `yesterday 5pm`, and RFC 3339
+/// timestamps.
+pub fn parse_datetime_expression(
+    s: &str,
+    now: ZonedDateTime,
+) -> Result<Timestamp, DateTimeExpressionParseError> {
+    let s = s.trim();
+    let validate = |timestamp: Timestamp| {
+        if timestamp.tz_offset.unsigned_abs() >= 24 * 60 {
+            return Err(DateTimeExpressionParseError {
+                input: s.to_owned(),
+                source: "UTC offset must be less than 24 hours".into(),
+            });
+        }
+        Ok(timestamp)
+    };
+    if let Ok(timestamp) = parse_datetime(s) {
+        return validate(timestamp);
+    }
+    for format in ["%Y-%m-%d %H:%M:%S%.f %:z", "%Y-%m-%d %H:%M %:z"] {
+        if let Ok(datetime) = ZonedDateTime::strptime(format, s) {
+            return validate(Timestamp::from_zoned(datetime));
+        }
+    }
+    // Parse in a fixed offset so interim cannot normalize a nonexistent local
+    // time across a daylight-saving gap before we validate it
+    let datetime = parse_date_string(
+        s,
+        now.with_time_zone(TimeZone::fixed(now.offset())),
+        Dialect::Us,
+    )
+    .map_err(|source| DateTimeExpressionParseError {
+        input: s.to_owned(),
+        source: source.into(),
+    })?;
+    let local = now
+        .time_zone()
+        .to_ambiguous_zoned_datetime(datetime.datetime());
+    if matches!(local.offset(), jiff::tz::AmbiguousOffset::Gap { .. }) {
+        return Err(DateTimeExpressionParseError {
+            input: s.to_owned(),
+            source: DateError::MissingTime.into(),
+        });
+    }
+    let datetime = local
+        .compatible()
+        .map_err(|source| DateTimeExpressionParseError {
+            input: s.to_owned(),
+            source: source.into(),
+        })?;
+    validate(Timestamp::from_zoned(datetime))
 }
 
 #[cfg(test)]
@@ -314,5 +379,69 @@ mod tests {
             parse_from_rfc3339("2000-01-23T01:23:45"),
             Err(TimestampParseError::MissingOffset)
         );
+    }
+
+    #[test]
+    fn test_parse_datetime_expression() {
+        let now: ZonedDateTime = "2024-01-01T08:00:00-08:00[-08:00]".parse().unwrap();
+        let parse = |expression| parse_datetime_expression(expression, now.clone()).unwrap();
+
+        assert_eq!(parse("now"), Timestamp::from_zoned(now.clone()));
+        assert_eq!(
+            parse("yesterday 5pm"),
+            parse_datetime("2023-12-31T17:00:00-08:00").unwrap()
+        );
+        assert_eq!(
+            parse("2023-03-25 01:30:45 -05:00"),
+            parse_datetime("2023-03-25T01:30:45-05:00").unwrap()
+        );
+        for (expression, expected) in [
+            ("32 hours", "2024-01-02T16:00:00-08:00"),
+            ("42 days", "2024-02-12T08:00:00-08:00"),
+            ("42 months", "2027-07-01T00:00:00-08:00"),
+            ("25 years", "2049-01-01T00:00:00-08:00"),
+            ("Sun, 23 Jan 2000 01:23:45 PST", "2000-01-23T01:23:45-08:00"),
+        ] {
+            assert_eq!(parse(expression), parse_datetime(expected).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_parse_datetime_expression_preserves_exact_offset_and_precision() {
+        let now: ZonedDateTime = "2024-01-01T08:00:00-08:00[-08:00]".parse().unwrap();
+        let expected = parse_datetime("2023-03-25T01:30:45.123+05:30").unwrap();
+        for expression in [
+            "2023-03-25 01:30:45.123 +05:30",
+            "2023-03-25T01:30:45.123+05:30",
+            " 2023-03-25T01:30:45.123+05:30 \n",
+        ] {
+            assert_eq!(
+                parse_datetime_expression(expression, now.clone()).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            parse_datetime_expression("2023-03-25 01:30 +05:30", now.clone()).unwrap(),
+            parse_datetime("2023-03-25T01:30:00+05:30").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_datetime_expression_rejects_invalid_input() {
+        let now: ZonedDateTime = "2024-01-01T08:00:00-08:00[-08:00]".parse().unwrap();
+        for expression in [
+            "",
+            " \n ",
+            "not a date",
+            "2023-02-29",
+            "2024-02-30",
+            "2024-13-01",
+            "2024-01-01T12:00:00+25:00",
+        ] {
+            assert!(
+                parse_datetime_expression(expression, now.clone()).is_err(),
+                "accepted invalid input: {expression:?}"
+            );
+        }
     }
 }
