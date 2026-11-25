@@ -28,6 +28,45 @@ use crate::common::force_interactive;
 use crate::common::to_toml_value;
 
 #[test]
+fn test_config_migrate_sign_on_push_on_cli() {
+    let test_env = TestEnvironment::default();
+
+    let output = test_env.run_jj_in(
+        ".",
+        [
+            "config",
+            "list",
+            "revsets.git-sign-on-push",
+            "--config=git.sign-on-push='mine()'",
+        ],
+    );
+    insta::assert_snapshot!(output, @r#"
+    revsets.git-sign-on-push = "mine()"
+    [EOF]
+    ------- stderr -------
+    Warning: Deprecated CLI-provided config: replace git.sign-on-push with revsets.git-sign-on-push = "mine()"
+    [EOF]
+    "#);
+
+    let output = test_env.run_jj_in(
+        ".",
+        [
+            "config",
+            "list",
+            "revsets.git-sign-on-push",
+            "--config=git.sign-on-push=false",
+        ],
+    );
+    insta::assert_snapshot!(output, @r#"
+    revsets.git-sign-on-push = "none()"
+    [EOF]
+    ------- stderr -------
+    Warning: Deprecated CLI-provided config: replace git.sign-on-push with revsets.git-sign-on-push = "none()"
+    [EOF]
+    "#);
+}
+
+#[test]
 fn test_config_list_single() {
     let test_env = TestEnvironment::default();
     test_env.add_config(

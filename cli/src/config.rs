@@ -1063,7 +1063,10 @@ pub fn default_config_migrations() -> Vec<ConfigMigrationRule> {
             "git.sign-on-push",
             "revsets.git-sign-on-push",
             |old_value| {
-                let value = old_value.as_bool().ok_or("expected a boolean")?;
+                if let Some(revset) = old_value.as_str() {
+                    return Ok(revset.to_owned().into());
+                }
+                let value = old_value.as_bool().ok_or("expected a boolean or revset")?;
                 Ok(if value {
                     "~signed() & mine()"
                 } else {

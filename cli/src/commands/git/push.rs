@@ -919,7 +919,8 @@ fn ready_to_push_revset_expression(
 
 /// Signs commits before pushing.
 ///
-/// Warns about commits that need a signature but are immutable.
+/// Warns about selected commits that are immutable and therefore cannot be
+/// rewritten.
 ///
 /// Returns the updated list of bookmark names and corresponding
 /// [`BookmarkPushUpdate`]s, and the number of signed commits.

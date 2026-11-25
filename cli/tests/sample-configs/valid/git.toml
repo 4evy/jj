@@ -8,3 +8,6 @@ record-synthetic-predecessors = false
 subprocess = false
 write-change-id-header = true
 executable-path = "/home/linus/.local/bin/git"
+
+[revsets]
+git-sign-on-push = "mine()"

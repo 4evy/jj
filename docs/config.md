@@ -1841,26 +1841,23 @@ to do with signing commits on modification of a change (e.g., rebasing or edits)
 - `force`: sign all commits after modification, always, even if you are not the
   author.
 
-To sign commits only when pushing, set `signing.behavior = "drop"` and
-`revsets.git-sign-on-push` to a revset of commits to sign:
+To select which commits are signed on push rather than at creation time, set
+`signing.behavior = "drop"` and set `revsets.git-sign-on-push` to a revset:
 
 ```toml
 # Configure signing backend as before, but lazily signing only on push.
 [signing]
-# Avoid doing any signing on commit creation
-behavior = "drop"
+behavior = "drop" # Avoid signing commits when they are created
 backend = "ssh"
 key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj+J6N6SO+4P8dOZqfR1oiay2yxhhHnagH52avUqw5h"
 
 [revsets]
-# Sign all non-signed commits on push
-# Could be "~signed()", or any other revset
 git-sign-on-push = "~signed() & mine()"
 ```
 
 With this setup, commits are not signed when they are created or rewritten. At
-push time, `revsets.git-sign-on-push` is evaluated and all matching mutable
-commits to be pushed will be signed beforehand.
+push time, this example signs unsigned, mutable commits authored by you that are
+being pushed. A different revset can select other commits.
 
 This is useful when the signing backend requires user interaction or is slow,
 because the signing work is deferred to push time. If `signing.behavior` is set
@@ -2527,12 +2524,12 @@ from](#user-config-files)), these environment variables override individual
 config keys. They take precedence over config files and are themselves
 overridden by `--config` / `--config-file`.
 
-| Variable          | Config key          |
-| :---------------- | :------------------ |
-| `$JJ_USER`        | `user.name`         |
-| `$JJ_EMAIL`       | `user.email`        |
-| `$JJ_EDITOR`      | `ui.editor`         |
-| `$JJ_PAGER`       | `ui.pager`          |
+| Variable          | Config key           |
+| :---------------- | :------------------- |
+| `$JJ_USER`        | `user.name`          |
+| `$JJ_EMAIL`       | `user.email`         |
+| `$JJ_EDITOR`      | `ui.editor`          |
+| `$JJ_PAGER`       | `ui.pager`           |
 | `$JJ_OP_HOSTNAME` | `operation.hostname` |
 | `$JJ_OP_USERNAME` | `operation.username` |
 

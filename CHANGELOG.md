@@ -22,6 +22,7 @@ release.
   `revsets.git-sign-on-push` revset. The default value is `none()`. If
   `git.sign-on-push` was previously set to `true`, it will be migrated to
   `revsets.git-sign-on-push = "~signed() & mine()"`.
+  String values from older builds are migrated to the new key unchanged.
 
 ### New features
 
