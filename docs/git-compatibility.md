@@ -142,6 +142,13 @@ commit can be selected as `refs/pull/123/head@origin` or with
 `fetched_git_refs('refs/pull/123/head', remote='origin')`. Use `jj git ref list`
 and `jj git ref forget` to inspect and remove fetched refs.
 
+`jj git ref fetch --depth <depth>` limits the history fetched from each target.
+In an existing shallow repository, the `git.fetch-depth` setting supplies the
+default depth for both `jj git fetch` and `jj git ref fetch`.
+`--shallow-exclude <ref>` instead fetches the complete stack after the specified
+remote ref and one additional parent generation for use as the oldest commit's
+diff base.
+
 Use `jj git ref push` to push one revision to an application-specific ref such
 as Gerrit's `refs/for/main`. Unlike `jj git push`, this low-level command does
 not create or track a bookmark. It also does not check for private commits,
