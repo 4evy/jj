@@ -604,6 +604,50 @@ pub async fn show_op_diff(
         }
     }
 
+    let changed_fetched_refs = diff_named_ref_targets(
+        from_repo.view().all_fetched_git_refs(),
+        to_repo.view().all_fetched_git_refs(),
+    )
+    .collect_vec();
+    if !changed_fetched_refs.is_empty() {
+        writeln!(formatter)?;
+        with_content_format
+            .write(formatter, async |formatter| {
+                writeln!(formatter, "Changed fetched Git refs:")
+            })
+            .await?;
+        for ((remote_name, ref_name), (from_target, to_target)) in changed_fetched_refs {
+            with_content_format
+                .write(formatter, async |formatter| {
+                    writeln!(
+                        formatter,
+                        "{ref_name}@{remote_name}:",
+                        ref_name = ref_name.as_symbol(),
+                        remote_name = remote_name.as_symbol()
+                    )?;
+                    write_ref_target_summary(
+                        formatter,
+                        current_repo,
+                        commit_summary_template,
+                        to_target,
+                        true,
+                        None,
+                    )
+                    .await?;
+                    write_ref_target_summary(
+                        formatter,
+                        current_repo,
+                        commit_summary_template,
+                        from_target,
+                        false,
+                        None,
+                    )
+                    .await
+                })
+                .await?;
+        }
+    }
+
     Ok(())
 }
 

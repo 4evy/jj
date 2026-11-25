@@ -39,6 +39,7 @@ use jj_core::op_store::LocalRemoteRefTarget;
 use jj_core::op_store::OperationId;
 use jj_core::op_store::RefTarget;
 use jj_core::op_store::RemoteRefState;
+use jj_core::ref_name::GitRefName;
 use jj_core::ref_name::RefName;
 use jj_core::ref_name::RemoteName;
 use jj_core::ref_name::RemoteRefSymbol;
@@ -178,6 +179,7 @@ pub enum RevsetCommitRef {
         /// If set, only matches remote tags in this state.
         remote_ref_state: Option<RemoteRefState>,
     },
+    FetchedGitRefs(RemoteRefSymbolExpression),
 }
 
 /// String expressions to match `name@remote` bookmarks/tags.
@@ -499,6 +501,10 @@ impl<St: ExpressionState<CommitRef = RevsetCommitRef>> RevsetExpression<St> {
             symbol,
             remote_ref_state,
         }))
+    }
+
+    pub fn fetched_git_refs(symbol: RemoteRefSymbolExpression) -> Arc<Self> {
+        Arc::new(Self::CommitRef(RevsetCommitRef::FetchedGitRefs(symbol)))
     }
 }
 
@@ -1025,6 +1031,10 @@ static BUILTIN_FUNCTION_MAP: LazyLock<HashMap<&str, RevsetFunction>> = LazyLock:
         let symbol = parse_remote_refs_arguments(diagnostics, function, context)?;
         let state = None;
         Ok(RevsetExpression::remote_tags(symbol, state))
+    });
+    map.insert("fetched_git_refs", |diagnostics, function, context| {
+        let symbol = parse_remote_refs_arguments(diagnostics, function, context)?;
+        Ok(RevsetExpression::fetched_git_refs(symbol))
     });
     map.insert("tracked_remote_tags", |diagnostics, function, context| {
         let symbol = parse_remote_refs_arguments(diagnostics, function, context)?;
@@ -2696,6 +2706,12 @@ fn resolve_remote_symbol(
     if let Some(id) = to_resolved_ref("remote_bookmark", symbol, &remote_ref.target)? {
         return Ok(id);
     }
+    let fetched_target = repo
+        .view()
+        .get_fetched_git_ref(symbol.remote, GitRefName::new(symbol.name.as_str()));
+    if let Some(id) = to_resolved_ref("fetched_git_ref", symbol, fetched_target)? {
+        return Ok(id);
+    }
     Err(make_no_such_symbol_error(repo, symbol.to_string()))
 }
 
@@ -2741,7 +2757,14 @@ fn make_no_such_symbol_error(repo: &dyn Repo, name: String) -> RevsetResolutionE
     let include_synced_remotes = name.contains('@');
     let tag_names = all_formatted_ref_symbols(repo.view().tags(), include_synced_remotes);
     let bookmark_names = all_formatted_ref_symbols(repo.view().bookmarks(), include_synced_remotes);
-    let mut candidates = collect_similar(&name, itertools::chain(tag_names, bookmark_names));
+    let fetched_ref_names = repo
+        .view()
+        .all_fetched_git_refs()
+        .map(|((remote, ref_name), _)| format_remote_symbol(ref_name.as_str(), remote.as_str()));
+    let mut candidates = collect_similar(
+        &name,
+        itertools::chain!(tag_names, bookmark_names, fetched_ref_names),
+    );
     candidates.dedup(); // tags and bookmarks may have duplicate symbols
     RevsetResolutionError::NoSuchRevision { name, candidates }
 }
@@ -3014,7 +3037,8 @@ impl SymbolKey {
             | RevsetCommitRef::Bookmarks(_)
             | RevsetCommitRef::RemoteBookmarks { .. }
             | RevsetCommitRef::Tags(_)
-            | RevsetCommitRef::RemoteTags { .. } => None,
+            | RevsetCommitRef::RemoteTags { .. }
+            | RevsetCommitRef::FetchedGitRefs(_) => None,
         }
     }
 
@@ -3121,6 +3145,17 @@ fn resolve_commit_ref(
                     remote_ref_state.is_none_or(|state| remote_ref.state == state)
                 })
                 .flat_map(|(_, remote_ref)| remote_ref.target.present_adds())
+                .cloned()
+                .collect();
+            Ok(commit_ids)
+        }
+        RevsetCommitRef::FetchedGitRefs(symbol) => {
+            let name_matcher = symbol.name.to_matcher();
+            let remote_matcher = symbol.remote.to_matcher();
+            let commit_ids = repo
+                .view()
+                .fetched_git_refs_matching(&name_matcher, &remote_matcher)
+                .flat_map(|(_, target)| target.present_adds())
                 .cloned()
                 .collect();
             Ok(commit_ids)

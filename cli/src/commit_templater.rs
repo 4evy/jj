@@ -60,7 +60,9 @@ use jj_lib::op_store::LocalRemoteRefTarget;
 use jj_lib::op_store::OperationId;
 use jj_lib::op_store::RefTarget;
 use jj_lib::op_store::RemoteRef;
+use jj_lib::ref_name::GitRefName;
 use jj_lib::ref_name::RefName;
+use jj_lib::ref_name::RemoteName;
 use jj_lib::ref_name::WorkspaceName;
 use jj_lib::ref_name::WorkspaceNameBuf;
 use jj_lib::repo::Repo;
@@ -466,6 +468,7 @@ pub struct CommitKeywordCache {
     bookmarks_index: OnceCell<Rc<CommitRefsIndex>>,
     tags_index: OnceCell<Rc<CommitRefsIndex>>,
     git_refs_index: OnceCell<Rc<CommitRefsIndex>>,
+    fetched_git_refs_index: OnceCell<Rc<CommitRefsIndex>>,
     is_immutable_fn: OnceCell<Rc<RevsetContainingFn<'static>>>,
 }
 
@@ -483,6 +486,14 @@ impl CommitKeywordCache {
     pub fn git_refs_index(&self, repo: &dyn Repo) -> &Rc<CommitRefsIndex> {
         self.git_refs_index
             .get_or_init(|| Rc::new(build_commit_refs_index(repo.view().git_refs())))
+    }
+
+    pub fn fetched_git_refs_index(&self, repo: &dyn Repo) -> &Rc<CommitRefsIndex> {
+        self.fetched_git_refs_index.get_or_init(|| {
+            Rc::new(build_fetched_git_refs_index(
+                repo.view().all_fetched_git_refs(),
+            ))
+        })
     }
 
     pub fn is_immutable_fn(
@@ -715,6 +726,18 @@ fn register_commit_methods(table: &mut CommitTemplateSymbolTable<'_>) {
                 .clone();
             let out_property =
                 self_property.map(move |commit| collect_remote_refs(index.get(commit.id())));
+            Ok(out_property.into_dyn_wrapped())
+        },
+    );
+    methods.insert(
+        "fetched_git_refs",
+        |language, _diagnostics, _build_ctx, self_property, function| {
+            function.expect_no_arguments()?;
+            let index = language
+                .keyword_cache
+                .fetched_git_refs_index(language.repo)
+                .clone();
+            let out_property = self_property.map(move |commit| index.get(commit.id()).to_vec());
             Ok(out_property.into_dyn_wrapped())
         },
     );
@@ -1557,6 +1580,18 @@ fn build_commit_refs_index<'a, K: Into<String>>(
     let mut index = CommitRefsIndex::default();
     for (name, target) in ref_pairs {
         let commit_ref = CommitRef::local_only(name, target.clone());
+        index.insert(target.present_adds(), commit_ref);
+    }
+    index
+}
+
+fn build_fetched_git_refs_index<'a>(
+    fetched_refs: impl IntoIterator<Item = ((&'a RemoteName, &'a GitRefName), &'a RefTarget)>,
+) -> CommitRefsIndex {
+    let mut index = CommitRefsIndex::default();
+    for ((remote_name, ref_name), target) in fetched_refs {
+        let commit_ref =
+            CommitRef::remote_only(ref_name.as_str(), remote_name.as_str(), target.clone());
         index.insert(target.present_adds(), commit_ref);
     }
     index
