@@ -15,9 +15,9 @@
 use std::io::Write as _;
 
 use clap_complete::ArgValueCandidates;
-use itertools::Itertools as _;
 use jj_lib::object_id::ObjectId as _;
 use jj_lib::ref_name::RemoteNameBuf;
+use jj_lib::str_util::StringMatcher;
 
 use super::canonicalize_git_ref_name;
 use crate::cli_util::CommandHelper;
@@ -45,34 +45,57 @@ pub async fn cmd_git_ref_list(
 ) -> Result<(), CommandError> {
     let workspace_command = command.workspace_helper(ui).await?;
     let view = workspace_command.repo().view();
-    let remote_filter = args.remote.as_deref();
+    let remote_matcher = args
+        .remote
+        .as_ref()
+        .map_or_else(StringMatcher::all, |remote| {
+            StringMatcher::exact(remote.as_str())
+        });
     let ref_filter = args
         .ref_name
         .as_deref()
         .map(canonicalize_git_ref_name)
         .transpose()?;
+    let ref_matcher = ref_filter.as_ref().map_or_else(StringMatcher::all, |name| {
+        StringMatcher::exact(name.as_str())
+    });
     let mut matched = 0;
-    for (remote_name, refs) in view.fetched_git_refs() {
-        if remote_filter.is_some_and(|remote| remote != remote_name) {
-            continue;
-        }
-        for (ref_name, target) in refs {
-            if ref_filter.as_ref().is_some_and(|name| name != ref_name) {
-                continue;
-            }
-            matched += 1;
-            let target_ids = target.present_adds().map(|id| id.hex()).join(", ");
+    let mut has_conflict = false;
+    for ((remote_name, ref_name), target) in
+        view.fetched_git_refs_matching(&ref_matcher, &remote_matcher)
+    {
+        matched += 1;
+        if let Some(id) = target.as_normal() {
             writeln!(
                 ui.stdout(),
                 "{} {} {}",
                 remote_name.as_symbol(),
                 ref_name.as_symbol(),
-                target_ids
+                id.hex()
             )?;
+        } else {
+            has_conflict = true;
+            writeln!(
+                ui.stdout(),
+                "{} {} (conflicted):",
+                remote_name.as_symbol(),
+                ref_name.as_symbol()
+            )?;
+            for id in target.present_adds() {
+                writeln!(ui.stdout(), "  + {}", id.hex())?;
+            }
+            for id in target.present_removes() {
+                writeln!(ui.stdout(), "  - {}", id.hex())?;
+            }
         }
     }
     if matched == 0 {
         writeln!(ui.status(), "No fetched Git refs.")?;
+    } else if has_conflict {
+        writeln!(
+            ui.hint_default(),
+            "Some fetched Git refs have conflicts. Fetch them again or forget them to resolve."
+        )?;
     }
     Ok(())
 }
